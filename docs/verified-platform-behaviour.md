@@ -169,7 +169,10 @@ in that project listed all eight components as `efficiency:*`.
 bash scripts/probes/stop-cap.sh stall 40   # expect ~9 invocations, platform cap
 bash scripts/probes/stop-cap.sh read  12   # expect 6, bound by --max-turns, cap never fires
 bash scripts/probes/stop-cap.sh write 12   # expect 6, same
+bash scripts/probes/transcript-shape.sh <path-to-transcript.jsonl>  # show subagents directory and usage keys present
 ```
 
-The probe prints a verdict rather than a number to interpret, and says so loudly when the hook never
-fired at all — because that is the failure most likely to be misread as a platform change.
+The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook
+never fired at all — because that failure is most likely to be misread as a platform change.
+`transcript-shape.sh` verifies that subagent transcripts are where they should be and shows which usage
+keys appear in actual spend data.

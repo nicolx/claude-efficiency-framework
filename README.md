@@ -121,9 +121,9 @@ Criticality is assigned **by declared path pattern first**. Where the patterns a
 classifies, says so in one line, and proposes the pattern that would have decided it — so the map
 gets built by using it rather than at a desk.
 
-## The four guards
+## The five guards
 
-The autopilot refuses to end a turn while the approved run has work left. Four things stop it, in
+The autopilot refuses to end a turn while the approved run has work left. Five things stop it, in
 this order:
 
 1. **The per-task spend ceiling.** Default 20% of your declared basket, measured from the session
@@ -132,9 +132,14 @@ this order:
    productive and never closes. It stops that task and asks you, and the session stays alive.
 2. **The gate retry budget.** Repair attempts on the same red gate.
 3. **The continuation budget.** For the run as a whole.
-4. **The platform.** Claude Code overrides any `Stop` hook after 8 consecutive blocks **without
-   progress**. Ours must fire first, because the first three write a reason you can read and this one
-   does not.
+4. **The stall guard.** If the same task is handed back repeatedly with nothing closing, the wording
+   escalates and then the run stops. This one exists because the framework's first real run on its
+   own repository failed exactly that way: 12 continuations, the work of one task done, its checkbox
+   never ticked, and the last restarts spent narrating the counter instead of working.
+5. **The platform.** Claude Code overrides any `Stop` hook after 8 consecutive blocks **without
+   progress** — and it counts blocked *turns*, so a project's own `Stop` hook shares that budget
+   rather than halving it. Ours must fire first, because the first four write a reason you can read
+   and this one does not.
 
 If spend cannot be measured, the run **stops**. An unmeasured ceiling is not a ceiling.
 

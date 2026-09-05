@@ -59,6 +59,14 @@ POLICY_FILE = os.path.join(".claude", "efficiency.md")
 GATE_TIMEOUT = 900          # seconds; a test suite is allowed to be slow
 GATE_OUTPUT_CHARS = 4000    # what goes back to the model on a red gate
 
+# How many times the same task may be handed back before the wording escalates,
+# and before the run stops. Both exist because of a measured failure: on this
+# framework's first real run the autopilot blocked 12 times on one task, the work
+# got done, the checkbox never got ticked, and the last continuations were spent
+# narrating the counter instead of working. Nothing detected it.
+STALL_WARN = 3
+STALL_STOP = 5
+
 TASK_RE = re.compile(r"^\s*-\s*\[(?P<mark>[ xX>])\]\s*(?P<text>.+?)\s*$")
 
 
@@ -310,13 +318,60 @@ def main():
         allow_with_note("efficiency autopilot: run complete, every task closed and the "
                         "gate green.")
 
+    # ── guard 4: is the run actually advancing? ──────────────────────────────
+    # A task whose work is finished but whose box is never ticked looks identical
+    # to a task still in progress, and the autopilot will hand it back forever.
+    # Measured on this framework's own first run: 12 blocks, one task's work, no
+    # box ticked, no log line.
+    open_now = len(remaining)
+    same = run.get_int("same_task_blocks", 0)
+    if (run.get_int("open_tasks_seen", -1) == open_now
+            and run.get("last_blocked_task") == task):
+        same += 1
+    else:
+        same = 0
+    run.set("same_task_blocks", same)
+    run.set("open_tasks_seen", open_now)
+    run.set("last_blocked_task", task)
+
+    if same >= STALL_STOP:
+        run.stop("the run stopped advancing: %s was handed back %d times in a row and "
+                 "%d task(s) are still open. Either the work is blocked on something "
+                 "undeclared, or finished work is not being closed. Both need a human "
+                 "to look." % (task, same, open_now))
+        allow_with_note("efficiency autopilot: stopped — %s was handed back %d times "
+                        "without the run advancing." % (task, same))
+
     run.set("continuations_used", used + 1)
     run.save()
-    block("The approved run still has %d task(s) open and the gate is green. Continue "
-          "with the next one — this was agreed when the run was approved, so do not ask "
-          "whether to proceed.\n\nNext: %s\n\nRecord in the run log what you decide "
-          "autonomously, and stop only for a reason listed in the policy's stop_for."
-          % (len(remaining), remaining[0]))
+
+    # The block reason is the only instruction the model reliably reads on a
+    # continuation — the skill's text was read once, several turns ago. So the
+    # state transitions the autopilot depends on have to be spelled out here,
+    # imperatively, or they do not happen.
+    steps = (
+        "Do this now, in order:\n"
+        "1. If %(task)s's acceptance criteria are met and the gate is green, mark its "
+        "line `- [x]`, append ONE line to `## Log` saying what you decided and why, set "
+        "`current_task` to the next task's id, and set `task_started_at` to the current "
+        "UTC time in ISO-8601.\n"
+        "2. Then start the next task's actual work.\n"
+        "3. If %(task)s is NOT finished, keep working on it — do not report progress.\n\n"
+        "Do not summarise, do not describe the counters, and do not ask whether to "
+        "proceed: the run was approved, and a status report costs a continuation without "
+        "advancing anything."
+    ) % {"task": task}
+
+    warning = ""
+    if same >= STALL_WARN:
+        warning = ("\n\nATTENTION: %s has now been handed back %d times in a row with "
+                   "the same %d task(s) open. If its work is done, what is missing is the "
+                   "`- [x]` and the log line — do that first. If it cannot be finished, "
+                   "say why instead of trying again; this run stops on its own after %d.\n"
+                   % (task, same, open_now, STALL_STOP))
+
+    block("%d task(s) still open, gate green. Current task: %s.\n\n%s%s\nNext open task: %s"
+          % (open_now, task, steps, warning, remaining[0]))
 
 
 if __name__ == "__main__":

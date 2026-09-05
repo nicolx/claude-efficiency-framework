@@ -47,9 +47,19 @@ whole design is arranged to prevent.
    - **CHANGES REQUESTED** → fix and re-review, once. If the second review still
      asks for changes, that is `ask: on_review_blocked`: stop and hand it over.
    - **NEEDS A HUMAN** → stop. This is a legitimate interruption.
-5. **Close it.** Change `- [ ]` to `- [x]` only when the acceptance criteria are
-   met and the gate is green. A task marked done that is not done is worse than
-   a task left open: it is the one lie that makes the whole log untrustworthy.
+5. **Close it, immediately.** Change `- [ ]` to `- [x]`, append the log line, set
+   `current_task` to the next id, and reset `task_started_at`. Do all four as
+   soon as the acceptance criteria are met and the gate is green — not at the end
+   of the run.
+
+   **An unticked box is indistinguishable from unfinished work**, so the autopilot
+   will hand the same task back forever while you believe you already did it. That
+   is measured, not hypothetical: it is how this framework's first real run burned
+   twelve continuations on one task. The stall guard now catches it, but the guard
+   stopping your run is a worse outcome than closing the task.
+
+   A task marked done that is *not* done is the opposite failure and it is worse:
+   it is the one lie that makes the whole log untrustworthy.
 
 ## The log is the deal
 

@@ -10,6 +10,36 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.2.0] — 2026-09-05
+
+### Added
+
+- **A fifth guard: the stall guard.** The hook now tracks whether a run is actually advancing, and
+  when the same task is handed back with nothing closing it escalates the wording, then stops the
+  run. Six selftest cases cover it.
+
+### Changed
+
+- **The block reason now carries the state transitions**, imperatively and in order: tick the box,
+  write the log line, move `current_task`, reset `task_started_at`, then work. It also forbids
+  status reporting outright.
+
+### Why
+
+The framework failed its first real run, on its own repository, and the failure was in the design
+rather than the code. Twelve continuations, $2.78, and the work of exactly one task — produced
+correctly, then never closed. The last restarts were spent describing the counter: the driving
+session's final line was *"Holding for that."*
+
+The root cause: the `run` skill was read once, several turns earlier, while the **block reason is
+the only instruction a model reliably reads on a continuation**. Putting the state transitions in
+the skill and not in the block reason meant they did not happen — and nothing was watching for a run
+that produced work without ever advancing.
+
+Three lessons, all now enforced rather than written down: instructions belong where they will be
+read; an unticked box is indistinguishable from unfinished work; and every guard needs a symptom it
+can detect, not just a limit it can count to.
+
 ## [0.1.0] — 2026-09-05
 
 First release. Deliberately not 1.0.0: the mechanism is measured and self-tested, but three things

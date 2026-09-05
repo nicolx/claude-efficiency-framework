@@ -370,7 +370,88 @@ def _():
     return p
 
 
-# ── 5. custody and confinement ───────────────────────────────────────────────
+# ── 5. the stall guard ───────────────────────────────────────────────────────
+# Every case here exists because of one measured failure: 12 blocks on the same
+# task, its work finished, the box never ticked, and the last continuations spent
+# narrating the counter. Nothing noticed.
+
+@case("the block reason tells the model to CLOSE the finished task")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    code, out = p.invoke()
+    reason = out.get("reason", "")
+    check("the block reason tells the model to CLOSE the finished task",
+          "- [x]" in reason and "## Log" in reason and "current_task" in reason
+          and "task_started_at" in reason,
+          "reason lacked the closing instructions: %.120s" % reason)
+    return p
+
+
+@case("the block reason forbids status reporting outright")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    code, out = p.invoke()
+    reason = out.get("reason", "").lower()
+    check("the block reason forbids status reporting outright",
+          "do not summarise" in reason and "counters" in reason,
+          "reason: %.120s" % reason)
+    return p
+
+
+@case("handing back the same task counts as a stall")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    p.invoke()
+    first = int(p.state()["same_task_blocks"])
+    p.invoke()
+    second = int(p.state()["same_task_blocks"])
+    check("handing back the same task counts as a stall",
+          first == 0 and second == 1, "first=%s second=%s" % (first, second))
+    return p
+
+
+@case("closing a task resets the stall counter")
+def _():
+    p = Project(tasks="- [ ] T1 open\n- [ ] T2 open")
+    p.invoke()
+    p.invoke()
+    stalled = int(p.state()["same_task_blocks"])
+    text = p.raw().replace("- [ ] T1 open", "- [x] T1 open")
+    open(p.run_path, "w").write(text)
+    p.invoke()
+    check("closing a task resets the stall counter",
+          stalled == 1 and int(p.state()["same_task_blocks"]) == 0,
+          "was %s, now %s" % (stalled, p.state()["same_task_blocks"]))
+    return p
+
+
+@case("the wording escalates once the stall is visible")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    out = {}
+    for _ in range(4):
+        _c, out = p.invoke()
+    check("the wording escalates once the stall is visible",
+          "ATTENTION" in out.get("reason", ""),
+          "reason: %.140s" % out.get("reason", ""))
+    return p
+
+
+@case("a run that never advances stops itself")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    out = {}
+    for _ in range(7):
+        _c, out = p.invoke()
+    st = p.state()
+    check("a run that never advances stops itself",
+          st["status"] == "BLOCKED" and "advancing" in st["blocked_reason"]
+          and "decision" not in out,
+          "status=%s reason=%.80s" % (st["status"], st["blocked_reason"]))
+    return p
+
+
+# ── 6. custody and confinement ───────────────────────────────────────────────
 
 @case("the run log survives every rewrite of the state")
 def _():
@@ -399,6 +480,34 @@ def _():
               "out=%s" % (out,))
     finally:
         shutil.rmtree(outside, ignore_errors=True)
+    return p
+
+
+@case("--by-model splits spend by model, not just a total")
+def _():
+    import subprocess as sp
+    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000)
+    p.write_transcript([
+        ("claude-opus-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:00Z"),
+        ("claude-haiku-4-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:01Z"),
+    ])
+    done = sp.run([sys.executable, os.path.join(HERE, "lib", "spend.py"),
+                   p.transcript, "2000-01-01T00:00:00Z",
+                   os.path.join(HERE, "lib", "model-costs.json"), "--by-model"],
+                  capture_output=True, text=True, timeout=60)
+    try:
+        d = json.loads(done.stdout)
+    except ValueError:
+        check("--by-model splits spend by model, not just a total", False,
+              "not JSON: %.80s" % done.stdout)
+        return p
+    by = d.get("by_model", {})
+    # A million input tokens: $5.00 on Opus, $1.00 on Haiku.
+    check("--by-model splits spend by model, not just a total",
+          d.get("total_micro_usd", 0) == 6_000_000
+          and by.get("claude-opus-5") == 5_000_000
+          and by.get("claude-haiku-4-5") == 1_000_000,
+          "got %s" % json.dumps(d))
     return p
 
 
