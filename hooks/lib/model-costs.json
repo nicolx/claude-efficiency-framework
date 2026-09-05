@@ -1,0 +1,34 @@
+{
+  "_comment": [
+    "US dollars per million tokens, first-party Anthropic API list prices.",
+    "This is a PROXY for what a run costs, not a bill: on a subscription you spend",
+    "plan allowance, not dollars. It is the only common unit a hook can compute, and",
+    "it is proportional to what the allowance actually charges.",
+    "",
+    "Cache writes are billed at 1.25x input for the 5-minute TTL and 2x input for the",
+    "1-hour TTL. Claude Code uses the 1-hour TTL for the main conversation on a",
+    "subscription and 5 minutes for subagents, and the transcript reports the split,",
+    "so both rates are listed rather than assumed.",
+    "",
+    "Cache reads are 0.1x input everywhere except Claude Fable 5.1, which is 0.025x.",
+    "",
+    "Verified against the bundled claude-api skill on 2026-09-05. Re-check on any",
+    "model release: a stale table makes the spend ceiling lie in whichever direction",
+    "the price moved."
+  ],
+  "verified": "2026-09-05",
+  "default": "claude-fable-5-1",
+  "_default_comment": "Unknown model ids fall back to the most expensive entry on purpose: an unknown model overestimates spend, so the ceiling fires early rather than late.",
+  "models": {
+    "claude-fable-5-1":  { "input": 10.00, "output": 50.00, "cache_read": 0.25, "cache_write_5m": 12.50, "cache_write_1h": 20.00 },
+    "claude-mythos-5-1": { "input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_write_5m": 12.50, "cache_write_1h": 20.00 },
+    "claude-fable-5":    { "input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_write_5m": 12.50, "cache_write_1h": 20.00 },
+    "claude-opus-5":     { "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_write_5m":  6.25, "cache_write_1h": 10.00 },
+    "claude-opus-4-8":   { "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_write_5m":  6.25, "cache_write_1h": 10.00 },
+    "claude-opus-4-7":   { "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_write_5m":  6.25, "cache_write_1h": 10.00 },
+    "claude-opus-4-6":   { "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_write_5m":  6.25, "cache_write_1h": 10.00 },
+    "claude-sonnet-5":   { "input":  2.00, "output": 10.00, "cache_read": 0.20, "cache_write_5m":  2.50, "cache_write_1h":  4.00 },
+    "claude-sonnet-4-6": { "input":  3.00, "output": 15.00, "cache_read": 0.30, "cache_write_5m":  3.75, "cache_write_1h":  6.00 },
+    "claude-haiku-4-5":  { "input":  1.00, "output":  5.00, "cache_read": 0.10, "cache_write_5m":  1.25, "cache_write_1h":  2.00 }
+  }
+}

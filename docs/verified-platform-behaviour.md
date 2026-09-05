@@ -84,7 +84,37 @@ and exiting **0**. The `reason` reaches the model and the turn continues.
 `--max-turns` binds there. Neither is available to an interactive session, which is why this
 framework carries its own ceilings rather than delegating to the platform.
 
-## 6. Project settings are ignored in an untrusted directory
+## 6. Subagent turns are in separate transcripts — and this one bit
+
+The main transcript carries `isSidechain` in its schema, which reads like a promise that subagent
+turns are in the same file. **They are not.** A session that spawned three subagents had
+`isSidechain: true` on zero rows, and no recent session on this machine had any.
+
+Subagent transcripts live in a sibling directory named after the session:
+
+```text
+<project-dir>/<session-id>.jsonl                        the main transcript
+<project-dir>/<session-id>/subagents/agent-<id>.jsonl   one per subagent
+```
+
+Same row shape — `message.model`, `message.usage`, `timestamp` — so they sum the same way, but a
+measurement that reads only `transcript_path` misses them entirely. On the session that produced
+this framework the subagents were **17% of the real spend**, and they are the expensive half by
+design: delegating review to a costly model is the whole point of routing. A spend ceiling blind to
+subagents is a ceiling on the cheap work only.
+
+Two shapes of model id appear, and neither matches a price table written from the docs:
+
+| Where | Example | Trap |
+|---|---|---|
+| Main session | `claude-opus-5[1m]` | context-window suffix |
+| Subagents | `claude-haiku-4-5-20251001` | dated snapshot |
+
+Both must be normalised before a price lookup. An unmatched id falls to whatever default the table
+declares — here deliberately the most expensive model, so an unknown id stops a run early rather
+than late, but for a *known* model priced as the fallback that is a tenfold error.
+
+## 7. Project settings are ignored in an untrusted directory
 
 Measured while building the probe, and worth knowing before debugging a hook that "does not run".
 

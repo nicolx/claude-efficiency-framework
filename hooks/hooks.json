@@ -1,0 +1,28 @@
+{
+  "description": "efficiency — refuse to end a turn while an approved run has work left, and carry the autonomy charter into projects that adopted the framework",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py\"",
+            "timeout": 960,
+            "statusMessage": "Checking the run before ending the turn..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
