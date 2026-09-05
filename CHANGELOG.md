@@ -10,6 +10,47 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.3.1] — 2026-09-05
+
+### Fixed
+
+- **Retracted the reasoning published with 0.3.0**, in the changelog, the README and the autonomy
+  charter. The claim that a model had erased the stall guard's counters was wrong.
+
+### The finding that caused it
+
+`claude plugin marketplace update` refreshes the catalogue and reports success. **It does not update
+an installed plugin.** Nothing says so, and `claude plugin list` keeps reporting the installed
+version — which is the only honest answer to "what am I running".
+
+Three consecutive dogfooding runs of this framework therefore executed **0.1.0** while 0.2.0 and
+0.3.0 sat in a refreshed catalogue. `open_tasks_seen` was missing from run two's state file because
+0.1.0 never wrote that key, not because anything deleted it. The stall guard was not neutralised; it
+was never loaded.
+
+Two related edges, both now in `docs/verified-platform-behaviour.md` § 9: `plugin update` defaults to
+**user** scope and fails against a `--scope project` install with a message that reads like the
+plugin is missing; and after updating it says *"Restart to apply changes"* while `plugin list` still
+shows the old version.
+
+### Consequences to be honest about
+
+- **The fixes in 0.2.0 and 0.3.0 remain unvalidated on real work.** They are sound as design and
+  green under 34 selftest cases, but no run has exercised them.
+- Run one's diagnosis stands: 0.1.0's block reason genuinely lacked the closing instructions, which
+  is what it was measured against.
+- Run three, also on 0.1.0, **closed a task in a single turn with no continuation at all**, and
+  stopped for a legitimate `stop_for` reason with a precise account of why the next task could not be
+  built as specified. That premise was itself wrong — the finding it disputed reproduces, as § 7 now
+  records with a table — but stopping instead of guessing is exactly the behaviour asked for.
+
+### Added
+
+- `docs/verified-platform-behaviour.md` § 7 now carries the measured trust table. **Trust is not
+  inherited from an ancestor**: a fresh subdirectory inside a repo you work in daily is as untrusted
+  as one in `/tmp`, and its project settings are ignored just as silently.
+- § 9 documents the update trap above, and the README's install section leads with it.
+
 ## [0.3.0] — 2026-09-05
 
 ### Fixed
@@ -27,20 +68,19 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 
 ### Why
 
-The stall guard added in 0.2.0 was neutralised on the very next run, and not by evasion. Told to
-update `current_task`, the model rewrote the run file's frontmatter and dropped every key it did not
-recognise: `open_tasks_seen` and `last_blocked_task` vanished and `same_task_blocks` went back to
-zero. It did not know those keys mattered.
+> **Retracted in 0.3.1.** This release was justified by a claim that turned out to be false: that a
+> model had rewritten the run file's frontmatter and wiped the stall guard's counters. It had not.
+> The keys were absent because the plugin actually running was 0.1.0, which never wrote them. See
+> 0.3.1 for what really happened.
 
-That is a direct violation of a rule this repo had already written down — *nothing a model can edit
-may extend a run* — and the reason it slipped through is that the rule was written against malice
-while the failure was ordinary tidying. Keeping the state somewhere the model is never told about
-turns "erased while editing" into a deliberate, named act that shows up in the transcript. It is not
-a security boundary, and the docs say so: anything with a shell can delete that file.
+The change itself stands on its own reasoning: a guard whose counters live in a file the model is
+asked to edit depends on the model preserving keys nobody told it were load-bearing, and a design
+that needs that has a hole in it. Moving them out is a precaution, not a post-mortem. It is not a
+security boundary either, and the docs say so — anything with a shell can delete that file.
 
-Six selftest cases reproduce the failure, including the frontmatter rewrite exactly as it happened,
-and the three levers it exposed: raising `continuations_max`, raising the spend ceiling, and flipping
-`status` back to `ACTIVE`. 34 checks, 0 failed.
+Six selftest cases hold the separation in place: raising `continuations_max`, raising the spend
+ceiling, flipping `status` back to `ACTIVE`, and rewriting the frontmatter the way a tidy editor
+would. 34 checks, 0 failed.
 
 ### Also verified, on real work
 

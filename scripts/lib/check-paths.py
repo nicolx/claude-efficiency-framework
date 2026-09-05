@@ -34,6 +34,12 @@ def main():
         for name in filenames:
             if not name.endswith((".md", ".json")):
                 continue
+            # A run's own state file is gitignored local scratch, not a shipped
+            # document (skills/init/SKILL.md tells consumers to ignore it) — its
+            # task list is allowed to name a deliverable a later task hasn't
+            # written yet, which is a plan, not a broken link.
+            if name.endswith(".local.md"):
+                continue
             with open(os.path.join(dirpath, name), errors="replace") as fh:
                 text = PLUGIN_ROOT.sub(" ", fh.read())
                 for ref in PATTERN.findall(text):

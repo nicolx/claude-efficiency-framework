@@ -1,7 +1,7 @@
 {
   "name": "efficiency",
   "description": "Route each task to the right model, and stop confirming what was already agreed. Ships a criticality-driven routing policy, an autopilot Stop hook with four nested guards, and a per-task spend ceiling measured from the session transcript.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "nicolx"
   },

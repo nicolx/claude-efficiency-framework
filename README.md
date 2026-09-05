@@ -101,8 +101,28 @@ declaring an **unknown** marketplace causes a first-time fetch could not be repr
 project carrying only the hand-written keys stayed empty — so treat the two commands above as the
 path that is verified, and this as a convenience for machines that already trust the marketplace.
 
-To take a new release: `claude plugin marketplace update claude-efficiency-framework`. There is no
-install script, no copied command files to keep in step, and no version marker.
+### Updating — the trap that cost three runs
+
+Two commands, and the first one alone does nothing:
+
+```bash
+claude plugin marketplace update claude-efficiency-framework      # refreshes the catalogue
+claude plugin update efficiency@claude-efficiency-framework \
+    --scope project                                               # updates YOUR install
+```
+
+`marketplace update` refreshes the catalogue and reports success; the plugin you are running stays
+at the version you installed. Worse, `plugin update` defaults to **user** scope, so against a
+`--scope project` install it fails with *"not installed at scope user"* — pass the scope you
+installed with. Then restart Claude Code.
+
+Measured the hard way: three consecutive test runs of this framework silently executed **0.1.0**
+while two releases sat in the refreshed catalogue, and the conclusions drawn from those runs had to
+be retracted. `claude plugin list` shows the version actually installed — check it before believing
+a test result.
+
+There is otherwise no install script, no copied command files to keep in step, and no version
+marker.
 
 **The plugin is inert in any project without `.claude/efficiency.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.
@@ -172,10 +192,10 @@ and the hook reads only from there. Editing the run file to raise a budget chang
 setting `status` back to `ACTIVE` does not resume a run a guard stopped. The legitimate way to start
 over is to change the task list, which is what re-planning already does.
 
-That separation is not defensive design for its own sake. In this framework's second real run the
-model was told to update `current_task`, rewrote the whole frontmatter, and dropped every key it did
-not recognise — wiping the stall guard that was watching it. It was not evading anything; it did not
-know those keys mattered. Six selftest cases now reproduce that exact failure.
+The reason is not that a model was caught cheating. It is that a guard whose counters live in a file
+the model is asked to edit depends on the model preserving keys nobody told it were load-bearing.
+Six selftest cases hold that separation in place: raising a budget in the run file, flipping `status`
+back to `ACTIVE`, and rewriting the frontmatter the way a tidy editor would all change nothing.
 
 ## What was measured rather than read
 
@@ -195,8 +215,8 @@ documentation:
 
 ## Requirements and limits
 
-- **`python3`** must be on `PATH`. The payload is JSON, the measurement is JSONL, the state is
-  frontmatter.
+- **`python3 >= 3.7`** must be on `PATH` (uses `datetime.fromisoformat()` from 3.7, in
+  `hooks/lib/spend.py`). The payload is JSON, the measurement is JSONL, the state is frontmatter.
 - **Permission rules cannot ship in a plugin** — a plugin's `settings.json` accepts only `agent` and
   `subagentStatusLine` — so `/efficiency:init` writes them into your project and reports every line
   it touched. It is the only invasive write the framework makes.

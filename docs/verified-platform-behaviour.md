@@ -135,13 +135,26 @@ A freshly created directory is not a trusted workspace. Its `.claude/settings.js
 ignored** — no warning, no error, the hook simply never fires and every counter reads zero. The
 failure is indistinguishable from "the platform changed its behaviour", which is the expensive part.
 
+Measured, with an always-blocking `Stop` hook declared in project settings:
+
+| Where the project lived | Hook invocations |
+|---|---|
+| A fresh `mktemp -d`, hook referenced by absolute path | **0** |
+| The same, hook referenced via `$CLAUDE_PROJECT_DIR` | **0** |
+| A fresh subdirectory **inside an already-trusted repo** | **0** |
+| The session's own scratchpad directory | fires normally |
+| Any directory, config passed with `--settings` | fires normally |
+
+The third row is the one worth knowing: **trust is not inherited from an ancestor.** A new directory
+under a repo you work in every day is as untrusted as one in `/tmp`. And the second row rules out the
+obvious confounder — it is not a variable that fails to expand.
+
 Two consequences:
 
 - Test hooks with `claude --settings <file>`, which bypasses workspace trust, rather than by writing
   a project settings file into a scratch directory.
-- A consuming project that has never been trusted gets no hooks from its own settings. Plugin hooks
-  are a separate path, but the same lesson applies: confirm the hook actually ran before concluding
-  anything about what it did.
+- A consuming project that has never been trusted gets no hooks from its own settings. Confirm the
+  hook actually ran before concluding anything about what it did.
 
 ## 8. How a plugin actually reaches a project
 
@@ -162,6 +175,33 @@ add a marketplace for you would be a repository that runs arbitrary hooks the mo
 
 Verified afterwards: with `enabledPlugins` committed and the marketplace known, a print-mode session
 in that project listed all eight components as `efficiency:*`.
+
+## 9. Refreshing a marketplace does not update an installed plugin
+
+The most expensive finding here, because it invalidated three test runs and the conclusions drawn
+from them.
+
+```bash
+claude plugin marketplace update <marketplace>   # refreshes the catalogue. Your install is untouched.
+claude plugin update <plugin>@<marketplace> --scope project   # updates the install.
+```
+
+`marketplace update` prints a success message, and the marketplace cache on disk really does move to
+the new version — `cat ~/.claude/plugins/marketplaces/<name>/VERSION` shows it. The **installed**
+plugin does not move, and nothing says so.
+
+Two more edges:
+
+- `plugin update` defaults to **user** scope. Against a `--scope project` install it fails with
+  *"Plugin is not installed at scope user"*, which reads like the plugin is missing rather than like
+  a scope mismatch.
+- After a successful update it says *"Restart to apply changes"*, and `claude plugin list` keeps
+  reporting the old version until then.
+
+**`claude plugin list` is the only honest answer to "what am I running".** Three consecutive runs of
+this framework executed 0.1.0 while two releases sat in a refreshed catalogue, and the failures those
+runs appeared to demonstrate were attributed to the newer code. Check the installed version before
+believing any test result about a plugin.
 
 ## Re-running these measurements
 
