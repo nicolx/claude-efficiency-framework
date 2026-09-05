@@ -33,15 +33,15 @@ whole design is arranged to prevent.
    charged to this one and the run stops early for the wrong reason.
 2. **Route it.** Read the tier and the model from the task line, and delegate
    accordingly:
-   - `haiku` → the `implementer-fast` agent, for work that is fully specified
+   - `haiku` → the `efficiency:implementer-fast` agent, for work that is fully specified
    - `sonnet` → do it in this session unless the policy says otherwise
-   - `design: opus` on a critical task → the `architect` agent first, then
+   - `design: opus` on a critical task → the `efficiency:architect` agent first, then
      implement its plan
    Route by what the policy says. Do not upgrade a task to a more expensive model
    because it feels harder, or downgrade one because it feels easy — that is the
    choice the policy exists to have already made.
 3. **Do the work**, against the acceptance criteria written for that task.
-4. **Review, if the task calls for it.** Delegate to the `reviewer` agent with
+4. **Review, if the task calls for it.** Delegate to the `efficiency:reviewer` agent with
    the diff and the task's acceptance criteria.
    - **PASS** → continue.
    - **CHANGES REQUESTED** → fix and re-review, once. If the second review still

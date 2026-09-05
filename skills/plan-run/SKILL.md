@@ -47,13 +47,13 @@ applies. Do not invent routing that the policy does not describe.
 
 Each task needs criteria that are **observable**: a behaviour, a test that
 passes, a value that appears, an error that is raised. These are what
-`reviewer` measures the diff against, so vagueness here is what makes a review
+`efficiency:reviewer` measures the diff against, so vagueness here is what makes a review
 gate useless later.
 
 "Handles errors properly" is not a criterion. "A malformed payload is rejected
 before anything is written, and the existing test suite still passes" is.
 
-For a `critical` task, delegate the design to the `architect` agent first and
+For a `critical` task, delegate the design to the `efficiency:architect` agent first and
 take the acceptance criteria from its plan.
 
 ## 4. Compute the ceilings

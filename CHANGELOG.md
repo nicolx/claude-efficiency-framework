@@ -49,11 +49,21 @@ in the plan's verification list have not happened yet, and calling it 1.0.0 woul
 - A freshly created directory is untrusted, and its project settings are ignored in silence — the
   failure most easily misread as a platform change.
 
+### Verified end to end
+
+- **The plugin loads and its components are addressable.** `claude --plugin-dir .` exposes all eight
+  as `efficiency:*` — three agents and five skills — which is also why the skills refer to agents by
+  their namespaced names rather than their bare ones.
+- **The autopilot blocks in a real session.** A throwaway project with two open tasks, a green gate
+  and `continuations_max: 2`: the hook blocked twice, incremented the counter itself, then stopped
+  the run with a reason naming both open tasks. The guard is real, not a diagram.
+
 ### Not yet verified
 
-- Installing as a plugin from the published repo, and per-project adoption through
-  `extraKnownMarketplaces` + `enabledPlugins`.
-- Coexistence with a second `Stop` hook registered by a consuming project, and what that does to
-  the shared `stop_hook_active` flag and the eight available blocks.
+- Adoption through `extraKnownMarketplaces` + `enabledPlugins` committed in a consuming project,
+  which needs the repo to be published first.
+- Coexistence with a second `Stop` hook registered by a consuming project, and what that does to the
+  shared `stop_hook_active` flag and the eight available blocks.
 - The measurement that actually matters: a real run of ten tasks with every interruption counted and
-  classified against the six causes.
+  classified against the six causes. That number is the metric this framework is judged on, and
+  until it exists the framework is a hypothesis with tests.
