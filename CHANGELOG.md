@@ -54,14 +54,17 @@ in the plan's verification list have not happened yet, and calling it 1.0.0 woul
 - **The plugin loads and its components are addressable.** `claude --plugin-dir .` exposes all eight
   as `efficiency:*` — three agents and five skills — which is also why the skills refer to agents by
   their namespaced names rather than their bare ones.
+- **Adoption works, but not the way it first looked.** A `--scope project` install writes only
+  `enabledPlugins` into the project; the marketplace stays in user settings, and committing
+  `extraKnownMarketplaces` into a project does not register it. That split is right — trusting a
+  marketplace is the machine owner's decision, not a cloned repo's — and the README now documents
+  the measured path rather than the assumed one.
 - **The autopilot blocks in a real session.** A throwaway project with two open tasks, a green gate
   and `continuations_max: 2`: the hook blocked twice, incremented the counter itself, then stopped
   the run with a reason naming both open tasks. The guard is real, not a diagram.
 
 ### Not yet verified
 
-- Adoption through `extraKnownMarketplaces` + `enabledPlugins` committed in a consuming project,
-  which needs the repo to be published first.
 - Coexistence with a second `Stop` hook registered by a consuming project, and what that does to the
   shared `stop_hook_active` flag and the eight available blocks.
 - The measurement that actually matters: a real run of ten tasks with every interruption counted and

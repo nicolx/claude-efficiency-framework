@@ -67,29 +67,38 @@ Autonomy is bought with two things, not one. Both are conditions of use:
 
 ## Install
 
+Two steps, and they live in different places on purpose.
+
+**Once per machine** — add the marketplace:
+
 ```bash
-/plugin marketplace add nicolx/claude-efficiency-framework
-/plugin install efficiency@claude-efficiency-framework
+claude plugin marketplace add nicolx/claude-efficiency-framework
+```
+
+**Once per project** — enable the plugin and commit that choice:
+
+```bash
+claude plugin install efficiency@claude-efficiency-framework --scope project
+```
+
+That writes exactly one thing into the project's `.claude/settings.json`, which you commit:
+
+```json
+{ "enabledPlugins": { "efficiency@claude-efficiency-framework": true } }
 ```
 
 Then **restart Claude Code** — hooks load at session start.
 
-To make a project adopt it so that anyone who clones gets it, commit this into the project's
-`.claude/settings.json`:
+**The marketplace does not travel with the repo, and that is the right design.** Measured: a
+`--scope project` install writes only `enabledPlugins`; the marketplace stays in *user* settings.
+Committing `extraKnownMarketplaces` into a project did not register it. So a teammate who clones
+runs the one `marketplace add` command themselves — because adding a marketplace is a trust
+decision, and a repository that could make it on your behalf could run arbitrary hooks the moment
+you cloned it.
 
-```json
-{
-  "extraKnownMarketplaces": {
-    "claude-efficiency-framework": {
-      "source": { "source": "github", "repo": "nicolx/claude-efficiency-framework" }
-    }
-  },
-  "enabledPlugins": { "efficiency@claude-efficiency-framework": true }
-}
-```
+Pin a release by adding `"ref": "v0.1.0"` to the marketplace source, or track `main`.
 
-No install script, no copied command files to keep in step, no version marker. Pin a release with
-`ref` or `sha` in the marketplace entry.
+No install script, no copied command files to keep in step, no version marker.
 
 **The plugin is inert in any project without `.claude/efficiency.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.
