@@ -41,6 +41,13 @@ for this event.
 has already blocked in this chain", and it is shared across all registered `Stop` hooks — it is not
 per-hook state.
 
+**But sharing the flag does not mean the hooks interfere.** Measured with two hooks registered on
+the same event, both always blocking: each was invoked on every single turn, and neither was skipped
+because the other had already blocked. The flag is information, not a lock. A hook that treats
+`stop_hook_active: true` as "stand down" disables itself as soon as any other Stop hook exists —
+which is why this framework's autopilot deliberately ignores it and bounds itself with counters it
+owns instead.
+
 ## 3. The block cap — and the condition that governs it
 
 This is the finding that decides how much autonomy is actually available, and the documented
@@ -49,6 +56,7 @@ This is the finding that decides how much autonomy is actually available, and th
 | Probe | What the model did between blocks | Hook invocations | What stopped it |
 |---|---|---|---|
 | A | Replied with text only, no tool calls | **9** | the platform cap |
+| A2 | Same, but with **two** blocking hooks registered | **9 each** | the platform cap, shared |
 | B | Wrote one file per turn | **20** | our own `--max-turns 40` |
 | C | Wrote one file per turn | **6** | our own `--max-turns 12` |
 | D | Ran one read-only `echo` per turn | **20** | our own `--max-turns 40` |
@@ -62,6 +70,11 @@ Read together:
   file has to change.
 - Therefore the cap is not a ceiling on autonomy. It is a free **anti-stall guard**, and it fires on
   precisely the case that deserves it: a model looping without doing anything.
+
+**The cap counts blocked turns, not blocks.** With two hooks both blocking on every turn, each was
+invoked **9 times** — the same total as one hook alone. Two hooks blocking together therefore consume
+*one* of the eight occasions, not two. A project's own quality gate and this autopilot can coexist
+without dividing the budget between them.
 
 **Consequence for this framework.** The platform will not cut a working autopilot short, so the
 limits that matter are our own — the per-task spend ceiling, the gate retry limit, and the

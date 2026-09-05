@@ -59,14 +59,18 @@ in the plan's verification list have not happened yet, and calling it 1.0.0 woul
   `extraKnownMarketplaces` into a project does not register it. That split is right — trusting a
   marketplace is the machine owner's decision, not a cloned repo's — and the README now documents
   the measured path rather than the assumed one.
+- **A project's own `Stop` hook coexists with the autopilot.** Both fire on every turn — 15
+  invocations each in a real run — and neither is skipped because the other blocked first. And the
+  platform's cap counts blocked *turns*, not blocks: with two hooks always blocking, each was
+  invoked 9 times, the same total as one hook alone. They share the budget rather than halving it.
+  This is also why the autopilot deliberately ignores `stop_hook_active`: a hook that stands down on
+  that flag disables itself the moment any other Stop hook exists.
 - **The autopilot blocks in a real session.** A throwaway project with two open tasks, a green gate
   and `continuations_max: 2`: the hook blocked twice, incremented the counter itself, then stopped
   the run with a reason naming both open tasks. The guard is real, not a diagram.
 
 ### Not yet verified
 
-- Coexistence with a second `Stop` hook registered by a consuming project, and what that does to the
-  shared `stop_hook_active` flag and the eight available blocks.
 - The measurement that actually matters: a real run of ten tasks with every interruption counted and
   classified against the six causes. That number is the metric this framework is judged on, and
   until it exists the framework is a hypothesis with tests.
