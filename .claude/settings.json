@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "efficiency@claude-efficiency-framework": true
+  }
+}
