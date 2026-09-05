@@ -167,8 +167,15 @@ this order:
 
 If spend cannot be measured, the run **stops**. An unmeasured ceiling is not a ceiling.
 
-Counters are owned and incremented by the hook, never by the model. A model that can edit its own
-leash has no leash.
+**Counters and ceilings live in a file no skill mentions** — `.claude/.efficiency-autopilot.json` —
+and the hook reads only from there. Editing the run file to raise a budget changes nothing, and
+setting `status` back to `ACTIVE` does not resume a run a guard stopped. The legitimate way to start
+over is to change the task list, which is what re-planning already does.
+
+That separation is not defensive design for its own sake. In this framework's second real run the
+model was told to update `current_task`, rewrote the whole frontmatter, and dropped every key it did
+not recognise — wiping the stall guard that was watching it. It was not evading anything; it did not
+know those keys mattered. Six selftest cases now reproduce that exact failure.
 
 ## What was measured rather than read
 

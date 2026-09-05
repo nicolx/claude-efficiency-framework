@@ -18,8 +18,11 @@ empty, stop and say so: autonomy without an executable oracle is unsupervised
 drift, and this is the one refusal the framework makes on purpose.
 
 **If the run is BLOCKED**, do not silently resume it. Show the developer
-`blocked_reason` and what you propose. Resuming means they decided to; clearing
-that state yourself would defeat the guard that set it.
+`blocked_reason` and what you propose. Setting `status` back to `ACTIVE` does
+nothing — the hook keeps the verdict in its own state and will stop the run
+again. Resuming is either a re-plan of the task list, or the developer deleting
+`.claude/.efficiency-autopilot.json` themselves. Both are deliberate, which is
+the point.
 
 **If there is no run file**, say so and point at `/efficiency:plan-run`. Do not
 improvise a run: an unapproved list executed autonomously is the failure this
@@ -27,10 +30,9 @@ whole design is arranged to prevent.
 
 ## For each task, in order
 
-1. **Mark it started.** Set `current_task`, set `task_started_at` to now in
-   ISO-8601 UTC, and reset `task_spend_micro_usd` to 0. The spend ceiling is
-   measured from that marker, so a stale one means the previous task's spend is
-   charged to this one and the run stops early for the wrong reason.
+1. **Mark it started.** Set `current_task` to this task's id — and nothing else in
+   the frontmatter. The hook owns the spend window and opens a fresh one as soon
+   as `current_task` changes, so that one field is the whole signal.
 2. **Route it.** Read the tier and the model from the task line, and delegate
    accordingly:
    - `haiku` → the `efficiency:implementer-fast` agent, for work that is fully specified
@@ -47,10 +49,9 @@ whole design is arranged to prevent.
    - **CHANGES REQUESTED** → fix and re-review, once. If the second review still
      asks for changes, that is `ask: on_review_blocked`: stop and hand it over.
    - **NEEDS A HUMAN** → stop. This is a legitimate interruption.
-5. **Close it, immediately.** Change `- [ ]` to `- [x]`, append the log line, set
-   `current_task` to the next id, and reset `task_started_at`. Do all four as
-   soon as the acceptance criteria are met and the gate is green — not at the end
-   of the run.
+5. **Close it, immediately.** Change `- [ ]` to `- [x]`, append the log line, and
+   set `current_task` to the next id. Do all three as soon as the acceptance
+   criteria are met and the gate is green — not at the end of the run.
 
    **An unticked box is indistinguishable from unfinished work**, so the autopilot
    will hand the same task back forever while you believe you already did it. That
@@ -88,6 +89,7 @@ approved list, and never summarise progress and wait. The list was approved:
 finish it.
 
 When a guard stops the run — the spend ceiling, the retry limit, the
-continuation budget — the hook writes `blocked_reason` and the turn ends. Report
-that plainly, with the number that caused it, and say what you would do next.
-Do not clear the block and carry on.
+continuation budget, the stall guard — the hook writes `blocked_reason` and the
+turn ends. Report that plainly, with the number that caused it, and say what you
+would do next. Do not try to clear the block: you cannot, and attempting it
+wastes a turn.

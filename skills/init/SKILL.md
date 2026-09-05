@@ -72,8 +72,9 @@ invasive write the framework makes, so treat it that way:
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
-**`.gitignore`** — add `.claude/efficiency.local.md` if it is not already
-covered. The policy travels with the repo; the run state does not.
+**`.gitignore`** — add `.claude/efficiency.local.md` and
+`.claude/.efficiency-autopilot.json` if they are not already covered. The policy
+travels with the repo; the run state and the hook's own counters do not.
 
 ## 4. Say what happens next
 

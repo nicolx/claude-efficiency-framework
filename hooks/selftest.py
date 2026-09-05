@@ -75,6 +75,39 @@ class Project:
                 + "---\n" + BODY.format(tasks=tasks))
             open(self.run_path, "w").write(text)
 
+    def seed_private(self, **values):
+        """Set the hook's own state, which no longer lives in the run file.
+
+        A test that seeds counters in the frontmatter is testing the old design:
+        the hook captures its ceilings and counters privately on first sight of a
+        run, precisely so a rewrite of that frontmatter cannot touch them.
+        """
+        import hashlib
+        statements = "\n".join(
+            l.split("]", 1)[1].strip()
+            for l in open(self.run_path, errors="replace").read().split("\n")
+            if l.strip().startswith("- [")
+        )
+        state = {
+            "fingerprint": hashlib.sha256(statements.encode()).hexdigest(),
+            "continuations_used": 0, "continuations_max": 40,
+            "gate_retries": 0, "gate_retries_max": 2, "spend_max": 0,
+            "task_key": "T1", "task_started_at": "2000-01-01T00:00:00Z",
+            "same_task_blocks": 0, "open_tasks_seen": -1,
+            "last_blocked_task": "", "blocked": False, "blocked_reason": "",
+        }
+        state.update(values)
+        with open(os.path.join(self.dir, ".claude", ".efficiency-autopilot.json"), "w") as fh:
+            json.dump(state, fh)
+        return self
+
+    def private(self):
+        path = os.path.join(self.dir, ".claude", ".efficiency-autopilot.json")
+        try:
+            return json.load(open(path))
+        except (OSError, ValueError):
+            return {}
+
     def write_transcript(self, messages):
         """A minimal transcript in the real on-disk shape."""
         self.transcript = os.path.join(self.dir, "transcript.jsonl")
@@ -199,13 +232,14 @@ def _():
 
 @case("open task, no gate: blocks and takes custody of the counter")
 def _():
-    p = Project(tasks="- [x] T1 done\n- [ ] T2 open", used=3)
+    p = Project(tasks="- [x] T1 done\n- [ ] T2 open").seed_private(continuations_used=3)
     code, out = p.invoke()
-    st = p.state()
     check("open task, no gate: blocks and takes custody of the counter",
-          out.get("decision") == "block" and st["continuations_used"] == "4"
+          out.get("decision") == "block" and p.private()["continuations_used"] == 4
+          and p.state()["continuations_used"] == "4"
           and "T2" in out.get("reason", ""),
-          "used=%s reason=%.60s" % (st["continuations_used"], out.get("reason")))
+          "private=%s mirrored=%s" % (p.private().get("continuations_used"),
+                                      p.state().get("continuations_used")))
     return p
 
 
@@ -229,7 +263,7 @@ def _():
 
 @case("continuations exhausted: stops with a readable reason")
 def _():
-    p = Project(tasks="- [ ] T1 open", used=40, used_max=40)
+    p = Project(tasks="- [ ] T1 open").seed_private(continuations_used=40, continuations_max=40)
     code, out = p.invoke()
     st = p.state()
     check("continuations exhausted: stops with a readable reason",
@@ -243,7 +277,7 @@ def _():
 
 @case("green gate: continues and clears the retry counter")
 def _():
-    p = Project(tasks="- [ ] T1 open", gate="true", retries=1)
+    p = Project(tasks="- [ ] T1 open", gate="true", retries=1).seed_private(gate_retries=1)
     code, out = p.invoke()
     check("green gate: continues and clears the retry counter",
           out.get("decision") == "block" and p.state()["gate_retries"] == "0",
@@ -265,7 +299,7 @@ def _():
 
 @case("red gate at the limit: stops the run instead of looping")
 def _():
-    p = Project(tasks="- [ ] T1 open", gate="exit 1", retries=2, retries_max=2)
+    p = Project(tasks="- [ ] T1 open", gate="exit 1").seed_private(gate_retries=2, gate_retries_max=2)
     code, out = p.invoke()
     st = p.state()
     check("red gate at the limit: stops the run instead of looping",
@@ -293,7 +327,7 @@ def _():
 
 @case("spend under the ceiling: continues, and records what was measured")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
     p.write_transcript([("claude-sonnet-5",
                          {"input_tokens": 1000, "output_tokens": 1000}, "2026-01-01T00:00:00Z")])
     code, out = p.invoke()
@@ -306,7 +340,7 @@ def _():
 
 @case("spend over the ceiling: stops the task and asks for an opinion")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=1000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
     p.write_transcript([("claude-opus-5",
                          {"input_tokens": 100000, "output_tokens": 100000}, "2026-01-01T00:00:00Z")])
     code, out = p.invoke()
@@ -320,7 +354,7 @@ def _():
 
 @case("spend unmeasurable: FAILS CLOSED rather than continuing blind")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=1000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
     p.transcript = os.path.join(p.dir, "does-not-exist.jsonl")
     code, out = p.invoke()
     st = p.state()
@@ -342,7 +376,7 @@ def _():
 
 @case("spend counts SUBAGENT turns, which are in a separate transcript")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
     p.write_transcript([("claude-haiku-4-5",
                          {"input_tokens": 10, "output_tokens": 10}, "2026-01-01T00:00:00Z")])
     p.subagent_transcript([("claude-opus-5",
@@ -357,8 +391,8 @@ def _():
 
 @case("spend ignores turns older than the task's start marker")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000,
-                started="2026-06-01T00:00:00Z")
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000,
+                task_started_at="2026-06-01T00:00:00Z")
     p.write_transcript([
         ("claude-opus-5", {"input_tokens": 500000, "output_tokens": 500000}, "2026-01-01T00:00:00Z"),
         ("claude-haiku-4-5", {"input_tokens": 100, "output_tokens": 100}, "2026-07-01T00:00:00Z"),
@@ -382,8 +416,8 @@ def _():
     reason = out.get("reason", "")
     check("the block reason tells the model to CLOSE the finished task",
           "- [x]" in reason and "## Log" in reason and "current_task" in reason
-          and "task_started_at" in reason,
-          "reason lacked the closing instructions: %.120s" % reason)
+          and "belong to the hook" in reason,
+          "reason lacked the closing instructions: %.160s" % reason)
     return p
 
 
@@ -451,7 +485,106 @@ def _():
     return p
 
 
-# ── 6. custody and confinement ───────────────────────────────────────────────
+# ── 6. custody: the model cannot reach the hook's state ──────────────────────
+# Every case here reproduces a real failure. On this framework's second run the
+# model was told to update `current_task`, rewrote the whole frontmatter, and
+# dropped every key it did not recognise — resetting the stall counter to zero
+# and erasing two others. Not evasion: it simply did not know they mattered.
+
+@case("rewriting the run file's frontmatter cannot reset the stall counter")
+def _():
+    p = Project(tasks="- [ ] T1 open")
+    p.invoke()
+    p.invoke()
+    stalled = p.private()["same_task_blocks"]
+    # Exactly what the model did: keep the keys it recognises, drop the rest.
+    text = p.raw()
+    head, _, body = text.partition("---\n")[2].partition("---\n")
+    kept = [l for l in head.split("\n")
+            if l.split(":", 1)[0] in ("status", "gate", "current_task", "blocked_reason")]
+    open(p.run_path, "w").write("---\n" + "\n".join(kept) + "\n---\n" + body)
+    p.invoke()
+    check("rewriting the run file's frontmatter cannot reset the stall counter",
+          stalled == 1 and p.private()["same_task_blocks"] == 2,
+          "was %s, now %s" % (stalled, p.private().get("same_task_blocks")))
+    return p
+
+
+@case("raising continuations_max in the run file buys nothing")
+def _():
+    p = Project(tasks="- [ ] T1 open").seed_private(continuations_used=5, continuations_max=5)
+    text = p.raw().replace("continuations_max: 40", "continuations_max: 9999")
+    open(p.run_path, "w").write(text)
+    code, out = p.invoke()
+    st = p.state()
+    check("raising continuations_max in the run file buys nothing",
+          "decision" not in out and st["status"] == "BLOCKED" and "5" in st["blocked_reason"],
+          "status=%s reason=%.70s" % (st["status"], st["blocked_reason"]))
+    return p
+
+
+@case("raising the spend ceiling in the run file buys nothing")
+def _():
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    text = p.raw().replace("task_spend_max_micro_usd: 0",
+                           "task_spend_max_micro_usd: 999999999")
+    open(p.run_path, "w").write(text)
+    p.write_transcript([("claude-opus-5",
+                         {"input_tokens": 100000, "output_tokens": 100000}, "2026-01-01T00:00:00Z")])
+    code, out = p.invoke()
+    check("raising the spend ceiling in the run file buys nothing",
+          p.state()["status"] == "BLOCKED" and "ceiling" in p.state()["blocked_reason"],
+          "status=%s" % p.state()["status"])
+    return p
+
+
+@case("setting status back to ACTIVE does not resume a stopped run")
+def _():
+    p = Project(tasks="- [ ] T1 open").seed_private(
+        blocked=True, blocked_reason="stopped by a guard in an earlier session")
+    text = p.raw().replace("status: BLOCKED", "status: ACTIVE")
+    open(p.run_path, "w").write(text)
+    code, out = p.invoke()
+    st = p.state()
+    check("setting status back to ACTIVE does not resume a stopped run",
+          "decision" not in out and st["status"] == "BLOCKED"
+          and "delete" in out.get("systemMessage", ""),
+          "status=%s msg=%.80s" % (st["status"], out.get("systemMessage")))
+    return p
+
+
+@case("re-planning the task list is the legitimate way to start over")
+def _():
+    p = Project(tasks="- [ ] T1 open").seed_private(
+        continuations_used=40, continuations_max=40, blocked=True,
+        blocked_reason="continuations exhausted")
+    text = p.raw().replace("- [ ] T1 open", "- [ ] T1 a different piece of work")
+    text = text.replace("status: BLOCKED", "status: ACTIVE")
+    open(p.run_path, "w").write(text)
+    code, out = p.invoke()
+    check("re-planning the task list is the legitimate way to start over",
+          out.get("decision") == "block" and p.private()["continuations_used"] == 1
+          and p.private()["blocked"] is False,
+          "used=%s blocked=%s" % (p.private().get("continuations_used"),
+                                  p.private().get("blocked")))
+    return p
+
+
+@case("the hook owns the spend window, so moving to the next task resets it")
+def _():
+    p = Project(tasks="- [x] T1 done\n- [ ] T2 open").seed_private(
+        task_key="T1", task_started_at="2000-01-01T00:00:00Z", spend_max=10_000_000)
+    text = p.raw().replace("current_task: T1", "current_task: T2")
+    open(p.run_path, "w").write(text)
+    p.invoke()
+    started = p.private()["task_started_at"]
+    check("the hook owns the spend window, so moving to the next task resets it",
+          started != "2000-01-01T00:00:00Z" and p.private()["task_key"] == "T2",
+          "task_key=%s started=%s" % (p.private().get("task_key"), started))
+    return p
+
+
+# ── 7. confinement ───────────────────────────────────────────────────────────
 
 @case("the run log survives every rewrite of the state")
 def _():
@@ -486,7 +619,7 @@ def _():
 @case("--by-model splits spend by model, not just a total")
 def _():
     import subprocess as sp
-    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
     p.write_transcript([
         ("claude-opus-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:00Z"),
         ("claude-haiku-4-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:01Z"),
@@ -513,7 +646,7 @@ def _():
 
 @case("a dated model id is priced as itself, not as the expensive fallback")
 def _():
-    p = Project(tasks="- [ ] T1 open", spend_max=10_000_000)
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
     p.write_transcript([("claude-haiku-4-5-20251001",
                          {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:00Z")])
     p.invoke()

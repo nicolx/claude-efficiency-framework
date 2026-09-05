@@ -42,6 +42,17 @@ answer yourself is a default nobody wrote down yet. Offer it for `.claude/effici
 question never costs anything again. This is how the policy gets built: by using it, not by filling
 it in at a desk.
 
+## One file you never touch
+
+`.claude/.efficiency-autopilot.json` belongs to the autopilot. It holds the counters and the
+ceilings, and it is the reason a guard that stopped a run stays stopped.
+
+Do not read it, edit it, or delete it, and do not add or remove keys in the run file's frontmatter
+beyond `current_task` and the checkboxes. This is not about trust: a model asked to update
+`current_task` once rewrote that frontmatter and dropped every key it did not recognise, wiping the
+guard that was watching the run. It was not evading anything — it simply did not know those keys
+mattered. Now you do.
+
 ## Routing
 
 Match the model to the work, per the `routing` table in `.claude/efficiency.md`. Where the tier is

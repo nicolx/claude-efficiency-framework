@@ -119,9 +119,12 @@ Two rules about this file:
 - **Write it only after approval.** Its existence is what switches the autopilot
   on: the hook does nothing while it is absent. Writing it early arms an
   unapproved run.
-- **The frontmatter belongs to the hook.** It reads and increments those
-  counters. Do not edit them by hand mid-run to buy more continuations — that is
-  the model holding its own leash, and it is the one thing the design refuses.
+- **The counters in the frontmatter are a mirror, not the source.** The hook keeps
+  its own copy in `.claude/.efficiency-autopilot.json`, captures the ceilings there
+  on first sight of the run, and reads only from there. Editing the frontmatter to
+  buy more continuations or a bigger ceiling changes nothing — and the run file's
+  `status` cannot resume a run a guard stopped either. The legitimate way to start
+  over is to change the task list, which is what re-planning already does.
 
 Finish by saying that `/efficiency:run` starts it, and that the autopilot needs
 the hooks to have been loaded at session start.

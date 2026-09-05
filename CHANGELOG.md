@@ -10,6 +10,45 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.3.0] — 2026-09-05
+
+### Fixed
+
+- **The hook's counters and ceilings moved out of the run file** into
+  `.claude/.efficiency-autopilot.json`, which no skill mentions and the charter forbids touching.
+  The hook captures the ceilings there on first sight of a run and reads only from there.
+- **A stopped run stays stopped.** The blocked verdict is private too, so setting `status: ACTIVE`
+  in the run file no longer resumes a run a guard halted. Starting over means changing the task
+  list — which is what re-planning already does — or deleting the state file deliberately.
+- **The hook owns the spend window.** It opens a fresh one when `current_task` changes, so the
+  model signals progress with one field instead of maintaining a timestamp it could also reset.
+- A green gate now mirrors `gate_retries: 0` into the run file unconditionally. A stale retry count
+  in the file a human reads is a small lie with no upside.
+
+### Why
+
+The stall guard added in 0.2.0 was neutralised on the very next run, and not by evasion. Told to
+update `current_task`, the model rewrote the run file's frontmatter and dropped every key it did not
+recognise: `open_tasks_seen` and `last_blocked_task` vanished and `same_task_blocks` went back to
+zero. It did not know those keys mattered.
+
+That is a direct violation of a rule this repo had already written down — *nothing a model can edit
+may extend a run* — and the reason it slipped through is that the rule was written against malice
+while the failure was ordinary tidying. Keeping the state somewhere the model is never told about
+turns "erased while editing" into a deliberate, named act that shows up in the transcript. It is not
+a security boundary, and the docs say so: anything with a shell can delete that file.
+
+Six selftest cases reproduce the failure, including the frontmatter rewrite exactly as it happened,
+and the three levers it exposed: raising `continuations_max`, raising the spend ceiling, and flipping
+`status` back to `ACTIVE`. 34 checks, 0 failed.
+
+### Also verified, on real work
+
+- **The spend ceiling fires on a real run.** Run two stopped itself at *"T1 reached its spend
+  ceiling ($5.06 of $5.00) without closing. It needs a human opinion before more is spent on it."*
+  Nine continuations, a readable reason, and the session left alive. This is the guard the framework
+  was asked for, and it works.
+
 ## [0.2.0] — 2026-09-05
 
 ### Added
