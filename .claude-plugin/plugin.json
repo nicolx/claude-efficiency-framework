@@ -1,0 +1,10 @@
+{
+  "name": "efficiency",
+  "description": "Route each task to the right model, and stop confirming what was already agreed. Ships a criticality-driven routing policy, an autopilot Stop hook with four nested guards, and a per-task spend ceiling measured from the session transcript.",
+  "version": "1.0.0",
+  "author": { "name": "nicolx" },
+  "homepage": "https://github.com/nicolx/claude-efficiency-framework",
+  "repository": "https://github.com/nicolx/claude-efficiency-framework",
+  "license": "MIT",
+  "keywords": ["efficiency", "autonomy", "model-routing", "autopilot", "budget"]
+}

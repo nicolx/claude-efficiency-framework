@@ -1,0 +1,11 @@
+{
+  "name": "efficiency",
+  "owner": { "name": "nicolx" },
+  "plugins": [
+    {
+      "name": "efficiency",
+      "source": "./",
+      "description": "Route each task to the right model, and stop confirming what was already agreed."
+    }
+  ]
+}
