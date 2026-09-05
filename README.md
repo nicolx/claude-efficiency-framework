@@ -89,16 +89,20 @@ That writes exactly one thing into the project's `.claude/settings.json`, which 
 
 Then **restart Claude Code** — hooks load at session start.
 
-**The marketplace does not travel with the repo, and that is the right design.** Measured: a
-`--scope project` install writes only `enabledPlugins`; the marketplace stays in *user* settings.
-Committing `extraKnownMarketplaces` into a project did not register it. So a teammate who clones
-runs the one `marketplace add` command themselves — because adding a marketplace is a trust
-decision, and a repository that could make it on your behalf could run arbitrary hooks the moment
-you cloned it.
+**Why the marketplace step is separate, and stays yours.** `plugin install --scope project` writes
+only `enabledPlugins` into the project. The marketplace goes to *user* settings by default, and a
+teammate who clones runs that one command themselves. That is the right boundary: adding a
+marketplace is a trust decision, and a repository that could make it on your behalf could run
+arbitrary hooks the moment you cloned it.
 
-Pin a release by adding `"ref": "v0.1.0"` to the marketplace source, or track `main`.
+`marketplace add --scope project` does exist, and writes `extraKnownMarketplaces` into the project
+instead. With the marketplace already on the machine that declaration is honoured. Whether a project
+declaring an **unknown** marketplace causes a first-time fetch could not be reproduced here — a
+project carrying only the hand-written keys stayed empty — so treat the two commands above as the
+path that is verified, and this as a convenience for machines that already trust the marketplace.
 
-No install script, no copied command files to keep in step, no version marker.
+To take a new release: `claude plugin marketplace update claude-efficiency-framework`. There is no
+install script, no copied command files to keep in step, and no version marker.
 
 **The plugin is inert in any project without `.claude/efficiency.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.
@@ -112,6 +116,26 @@ injected, nothing costs a token. Adoption is a file, not a switch.
 | Execute it | `/efficiency:run` | per piece of work |
 | Read what happened | `/efficiency:run-report` | after |
 | Parallelise independent work | `/efficiency:fanout` | only when you ask |
+
+### The three things you have to supply
+
+`init` proposes all three by reading the repo, and you correct them. They are what decides whether
+the benefits are real or decorative:
+
+1. **The gate command.** Mandatory — `run` **refuses to start without one**. Whatever you would run
+   before committing: `bin/qa`, `composer qa`, `npm run check`, `make check`. It is the only thing
+   that makes autonomy supervised rather than drift.
+2. **The criticality patterns.** Which paths are `critical` and which are `sensitive`. Where they are
+   silent the model classifies and proposes the missing pattern, so the map completes itself as you
+   use it.
+3. **The declared defaults.** The largest source of interruptions, because most questions you get
+   asked are not decisions — they are defaults nobody wrote down. Every run proposes new ones.
+
+### Calibrate the ceiling after a run or two
+
+The per-task ceiling ships at **$5.00** and is switched on from the first day. Once `run-report` has
+shown you what a task really costs, put that period's worth in `basket_usd` and the ceiling becomes
+20% of a measurement instead of 20% of a guess.
 
 **`plan-run` is where your attention goes.** You approve a list once: each task with its criticality
 tier, its model, and acceptance criteria a reviewer can check. Everything after that is a

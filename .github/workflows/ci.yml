@@ -31,7 +31,16 @@ jobs:
         run: shellcheck scripts/*.sh scripts/probes/*.sh
 
       # The gate exits 2 for "passed what could run". In CI every tool is
-      # present, so 2 means something genuinely did not run and that is a
-      # failure here even though it is a warning locally.
+      # present, so a missing-tool skip can't happen here — the one skip that
+      # can legitimately fire in this environment is the price-table
+      # staleness warning, and that one must not turn a green history red on
+      # a schedule nobody controls. Exit 1 (an actual failed check) still
+      # fails the job; only exit 2 is tolerated.
+      #
+      # `run:` steps use `bash -e` by default on Linux runners, so a plain
+      # multi-line script would abort at the first non-zero exit before the
+      # exit-2 tolerance below it ever ran. Keeping the check as the left
+      # side of `||` sidesteps that: -e does not trigger on a command that is
+      # not the last in an && / || list.
       - name: gate
-        run: bash scripts/qa.sh
+        run: bash scripts/qa.sh || [ "$?" -eq 2 ]

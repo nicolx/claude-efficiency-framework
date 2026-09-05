@@ -56,6 +56,34 @@ PY
     then ok "prices consistent, default present, verified date recorded"
     else bad "cost table is inconsistent"
     fi
+
+    # A price table nobody re-checked is a ceiling that lies in whichever
+    # direction the price moved. Stale is a skip, not a failure: the table is
+    # not wrong, just unconfirmed. A date that cannot be parsed at all is a
+    # real defect, so that stays a bad(), never folded into the same skip.
+    AGE_OUT=$(python3 - <<'PY' 2>&1
+import json
+from datetime import date
+
+try:
+    d = json.load(open("hooks/lib/model-costs.json"))
+    y, m, dd = (int(x) for x in d.get("verified", "").split("-"))
+    print((date.today() - date(y, m, dd)).days)
+except Exception as e:
+    print("%s: %s" % (type(e).__name__, e))
+    raise SystemExit(1)
+PY
+    )
+    AGE_STATUS=$?
+    if [ "$AGE_STATUS" -ne 0 ]; then
+        bad "hooks/lib/model-costs.json verified date unreadable: $AGE_OUT"
+    elif [ "$AGE_OUT" -lt 0 ]; then
+        bad "hooks/lib/model-costs.json verified date is in the future ($AGE_OUT days)"
+    elif [ "$AGE_OUT" -gt 90 ]; then
+        skip "hooks/lib/model-costs.json prices" "verified $AGE_OUT days ago, older than 90 — re-check against the claude-api skill"
+    else
+        ok "hooks/lib/model-costs.json verified $AGE_OUT day(s) ago"
+    fi
 else
     skip "cost table" "python3 not found"
 fi
