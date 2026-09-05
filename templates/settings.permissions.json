@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Merge into the project's .claude/settings.json. A plugin cannot ship permission",
+    "rules — its own settings.json accepts only `agent` and `subagentStatusLine` — so",
+    "/efficiency:init writes these into the project instead, and says line by line what",
+    "it touched.",
+    "",
+    "Rules are written as PREFIXES on purpose. An allowlist of exact invocations dies on",
+    "the first extra flag, and a dead allowlist is indistinguishable from no allowlist.",
+    "",
+    "The deny list cannot be shipped: only the project knows its own irreversible levers.",
+    "The question to answer is — which commands act in seconds, on the outside world, and",
+    "do not undo? Release and rollback, anything that writes to production, destructive",
+    "data commands. A deny blocks the human too, and revoking one means editing this file.",
+    "That is deliberate."
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

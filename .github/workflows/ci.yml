@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Pinned: the distro package drifts, and a linter that changes under CI
+      # turns a green history red for reasons unrelated to any commit.
+      - name: install shellcheck 0.11.0
+        run: |
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            | tar -xJ
+          sudo install -m755 shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+          shellcheck --version
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh scripts/probes/*.sh
+
+      # The gate exits 2 for "passed what could run". In CI every tool is
+      # present, so 2 means something genuinely did not run and that is a
+      # failure here even though it is a warning locally.
+      - name: gate
+        run: bash scripts/qa.sh

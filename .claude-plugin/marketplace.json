@@ -1,6 +1,8 @@
 {
-  "name": "efficiency",
-  "owner": { "name": "nicolx" },
+  "name": "claude-efficiency-framework",
+  "owner": {
+    "name": "nicolx"
+  },
   "plugins": [
     {
       "name": "efficiency",
