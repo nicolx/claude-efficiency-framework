@@ -156,6 +156,56 @@ else
     skip "skill trigger phrases" "python3 not found"
 fi
 
+# ── 4b. every measured claim says when it was measured ───────────────────────
+# Section 7 was wrong for a month because nobody could see it had expired: eight
+# of the thirteen entries carried no date at all. Undated is a failure — a claim
+# with no provenance cannot be re-derived. Merely old is a skip, like the price
+# table: the claim is not wrong, it is unconfirmed, and a gate that goes red on
+# the calendar is a gate people learn to ignore.
+section "measurement provenance"
+if command -v python3 >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-measurement-age.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the staleness guard cannot reach the verdicts it claims"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+
+    out=$(python3 scripts/lib/check-measurement-age.py "$ROOT" 2>&1)
+    case "$?" in
+        0) ok "$(printf '%s' "$out" | head -1)" ;;
+        3) skip "re-measurement" "$(printf '%s' "$out" | head -1)"
+           printf '%s\n' "$out" | tail -n +2 | sed 's/^/        /' ;;
+        *) bad "a documented claim has no date"
+           printf '%s\n' "$out" | sed 's/^/        /' ;;
+    esac
+else
+    skip "measurement provenance" "python3 not found"
+fi
+
+# ── 4c. the probes' own command-line flags still exist ───────────────────────
+# `--max-turns` left `claude --help` on 2.1.296 while staying accepted, and the
+# probes bound themselves with it. A flag that quietly stops being honoured does
+# not error: the probe keeps reporting a number, and the number measures
+# something else. Costs nothing and calls no API.
+section "probe flags"
+if command -v claude >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-probe-flags.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the flag guard cannot tell a live flag from a dead one"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+    if out=$(python3 scripts/lib/check-probe-flags.py "$ROOT" 2>&1); then
+        ok "$out"
+    else
+        bad "a probe depends on a flag this claude no longer accepts"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+else
+    skip "probe flags" "claude or python3 not on PATH, so the probes cannot be checked here"
+fi
+
 # ── 5. paths written in prose are real ───────────────────────────────────────
 # A path in a document is a live reference: a consumer resolves it. When a file
 # moves, this is what catches the stragglers.

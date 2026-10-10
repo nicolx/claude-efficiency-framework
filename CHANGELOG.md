@@ -10,6 +10,50 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.15.0] — 2026-10-10
+
+### Added — the headline assumption, measured at last: skills are reached by what they do
+
+The framework's premise is that a developer never has to remember a command name. That had been seen
+work once, for one skill, and assumed for the other six.
+
+`scripts/probes/skill-auto-invoke.sh` measures it: seven skills, a plain request in English and in
+Italian, three trials each, 48 headless sessions in a scaffolded project. It reads the `Skill` call
+the model chose, and two negative controls check the opposite failure.
+
+| skill | English | Italian |
+|---|---|---|
+| `backlog`, `init`, `run`, `run-report` | 3/3 | 3/3 |
+| `plan-run` | 1/3 | 2/3 |
+| `fanout` | **0/3** | 2/3 |
+| `autopilot` | **0/3** | **0/3** |
+
+No skill was ever chosen in place of another, and neither control ever fired.
+
+**Naming the trigger phrases turns out to be necessary, not sufficient.** All seven descriptions do
+it, in both languages, since 0.14.0. The four reached every time ask for something the model has no
+other way to do. The three that are missed ask for something it will simply do instead — the
+transcripts show it finishing the TODO list rather than arming the autopilot, adding four docstrings
+in sequence rather than fanning out, drafting the plan rather than invoking the planner.
+
+The autopilot's 0/6 is not its production number: a real session gets a `UserPromptSubmit` line
+naming it, and that hook never fires under `-p`. Which also means the framework's most important
+skill is currently carried by a hook rather than by its own description. Filed.
+
+### Added — two guards for the thing this repo keeps getting wrong: knowing what is still true
+
+**`scripts/lib/check-measurement-age.py`.** `docs/verified-platform-behaviour.md` promises every
+entry carries its date, its version and its method. Eight of thirteen carried none, which is how § 7
+stayed wrong for a month. Undated now fails the gate; older than 90 days reports as a skip, the way
+the price table already does. All eight have been backfilled with provenance read out of the git
+history rather than guessed — and § 10, whose version the history cannot settle, says so.
+
+**`scripts/lib/check-probe-flags.py`.** `--max-turns` left `claude --help` on 2.1.296 while staying
+accepted, and four probes bound themselves with it. The guard reads the flags out of the probes
+themselves and checks each against the installed `claude`, free and with no API call.
+
+Both ship with a `--selftest` that `scripts/qa.sh` runs before the check itself.
+
 ## [0.14.0] — 2026-10-10
 
 ### Fixed — `.claude/` is not refused, it is refused in two permission modes out of four

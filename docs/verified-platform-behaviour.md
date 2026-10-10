@@ -42,6 +42,8 @@ arrives. This is what makes per-task spend measurement possible without any API 
 `last_assistant_message`, `prompt_id`, `background_tasks` and `session_crons` are also undocumented
 for this event.
 
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+
 ## 2. `stop_hook_active`
 
 `false` on the first invocation of a turn chain, `true` on every one after it. It marks "a Stop hook
@@ -54,6 +56,9 @@ because the other had already blocked. The flag is information, not a lock. A ho
 `stop_hook_active: true` as "stand down" disables itself as soon as any other Stop hook exists —
 which is why this framework's autopilot deliberately ignores it and bounds itself with counters it
 owns instead.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`), and extended the same day by the
+two-hook coexistence run in `dfa61e0`. Not re-measured since — see the backlog.*
 
 ## 3. The block cap — and the condition that governs it
 
@@ -101,11 +106,15 @@ Confirmed by the probes: a `Stop` hook blocks by printing to stdout
 
 and exiting **0**. The `reason` reaches the model and the turn continues.
 
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+
 ## 5. Spend and turn limits
 
 `--max-budget-usd` and `--max-turns` are documented as print-mode flags, and the probes confirm
 `--max-turns` binds there. Neither is available to an interactive session, which is why this
 framework carries its own ceilings rather than delegating to the platform.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
 
 ## 6. Subagent turns are in separate transcripts — and this one bit
 
@@ -136,6 +145,8 @@ Two shapes of model id appear, and neither matches a price table written from th
 Both must be normalised before a price lookup. An unmatched id falls to whatever default the table
 declares — here deliberately the most expensive model, so an unknown id stops a run early rather
 than late, but for a *known* model priced as the fallback that is a tenfold error.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
 
 ## 7. Project settings in an untrusted directory — EXPIRED on 2.1.289
 
@@ -203,6 +214,8 @@ add a marketplace for you would be a repository that runs arbitrary hooks the mo
 
 Verified afterwards: with `enabledPlugins` committed and the marketplace known, a print-mode session
 in that project listed all eight components as `efficiency:*`.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`4550b61`). Not re-measured since.*
 
 ## 9. Writes into `.claude/` are governed by the permission mode
 
@@ -293,6 +306,11 @@ enable a hook-running plugin on its own would be a repository that runs code the
 false. They each run `marketplace add` and `plugin install`. This framework's README claimed the
 easier version until it was measured.
 
+*Recorded 2026-10-10 (`22ee95b`). The Claude Code version was not noted at the time, and the
+history places the commit between 2.1.289 and 2.1.296 without settling which — so this entry is due
+a re-measurement whatever its age, and the date below is when it was written down, not a version it
+was checked against.*
+
 ## 11. Refreshing a marketplace does not update an installed plugin
 
 The most expensive finding here, because it invalidated three test runs and the conclusions drawn
@@ -341,6 +359,8 @@ python3 -c "import json;[print(e['version'], e.get('projectPath'))
 catalogue, and the failures those runs appeared to demonstrate were attributed to the newer code.
 Check which version a project is actually on — by path, not by the first line of output — before
 believing any test result about a plugin.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`fd43dee`). Not re-measured since.*
 
 ## 12. The status line — the only continuously visible surface
 
@@ -414,6 +434,61 @@ Three things follow, and the second is the one that was assumed wrong here befor
 And the limit worth stating with them: when what matters is the *layout* — a scan, a signature, a
 figure whose appearance is the content — the page image is the correct thing to read, and converting
 first is strictly worse. Fidelity, not frugality, decides that one.
+
+## 14. A skill is reached by what it does, not by how its description is worded
+
+The framework assumes a developer never has to remember a command name: they say
+what they want and the right skill is chosen from its description. That had been
+observed once, for one skill, and assumed for the rest.
+
+Measured **2026-10-10** on **2.1.296** with `scripts/probes/skill-auto-invoke.sh`: seven skills, a
+plain request in English and in Italian, three trials each, forty-eight headless sessions in a
+scaffolded throwaway project with the plugin loaded through `--plugin-dir`. What is read is the
+`Skill` tool call the model chose — not what it said it would do. Two negative controls check the
+other failure: a description that claims everything interrupts as surely as one that claims nothing.
+
+| skill | English | Italian |
+|---|---|---|
+| `backlog` | 3/3 | 3/3 |
+| `init` | 3/3 | 3/3 |
+| `run` | 3/3 | 3/3 |
+| `run-report` | 3/3 | 3/3 |
+| `plan-run` | 1/3 | 2/3 |
+| `fanout` | **0/3** | 2/3 |
+| `autopilot` | **0/3** | **0/3** |
+
+Both controls stayed silent in every trial, and no skill was ever chosen in place of another.
+
+**The pattern is not about wording.** All seven descriptions name their trigger phrases verbatim, in
+both languages — that was made true at 0.14.0 and the gate enforces it. The four that are reached
+every time ask for something the model has no other way to do: file this, set this up, execute the
+approved run, report on it. The three that are missed ask for something the model will simply *do*
+instead, and the transcripts say so in its own words — it finished the TODO items rather than arming
+the autopilot, added the four docstrings one after another rather than fanning out, drafted the plan
+rather than invoking the planner.
+
+**So naming the trigger phrases is necessary, not sufficient.** The check added at 0.14.0 catches a
+description nobody could ever match; it cannot catch a skill whose task the model would rather
+perform than delegate. Nothing measured here says quoted phrases change how often a skill fires.
+
+**The autopilot's 0/6 is not the production number.** In a real session the `UserPromptSubmit` hook
+injects a line naming the autopilot outright, and that is what arms it. These sessions had no such
+help: measured in every retained transcript, `UserPromptSubmit` never fires under `-p`, and
+`SessionStart` runs but emits nothing in a project that has not adopted the framework. The probe
+therefore tests a description stripped of every aid — a harder test than production, and the reason
+a miss here is not automatically a miss there. It also means the framework's most important skill is
+currently carried by a hook rather than by its description.
+
+**Measured on Haiku**, because a probe has to be cheap enough to re-run. `MODEL=sonnet TRIALS=5`
+re-measures it against a larger model; whether selection behaves the same there is not known.
+
+*Measured 2026-10-10 on Claude Code 2.1.296. It took four rounds to get an instrument worth
+believing: the first scored skills with a reader that crashed on an event shape it did not expect and
+returned silence, which read as "never fired"; the second charged descriptions for requests that had
+no referent in an empty fixture; the third mistook `--max-turns 3` running out for a decision; the
+fourth ran under a permission mode that denied the writes the skills exist to perform. Every change
+fixed a defect named in a transcript. None of them was a nudge to make a number look better — which
+is the only thing separating a probe from a wish.*
 
 ## Re-running these measurements
 
