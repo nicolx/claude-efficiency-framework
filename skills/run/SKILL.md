@@ -1,6 +1,6 @@
 ---
 name: run
-description: Start or resume an approved run — execute the task list to the end, routing each task to its model, running the gate, and logging every autonomous decision. Use when the user wants to begin autonomous execution, or to resume a run that stopped.
+description: Start or resume an approved run — execute the task list to the end, routing each task to its model, running the gate, and logging every autonomous decision. Use when the user wants execution to begin, or wants a stopped run picked back up — "start the run", "go ahead with the plan", "resume where it stopped", "riprendi da dove si era fermato".
 ---
 
 # run

@@ -1,6 +1,6 @@
 ---
 name: fanout
-description: Run genuinely independent work in parallel across subagents, in batches, with one objective test per item. The nearest thing Claude Code has to the Batch API. Never start one unasked — it costs real money and it enlarges the diff. Use only when the user explicitly asks to parallelise a batch of independent work.
+description: Run genuinely independent work in parallel across subagents, in batches, with one objective test per item. The nearest thing Claude Code has to the Batch API. Never start one unasked — it costs real money and it enlarges the diff. Use only when the user explicitly asks to parallelise a batch of independent work — "run these in parallel", "do all of these at once", "fan these out", "falli tutti in parallelo".
 ---
 
 # fanout

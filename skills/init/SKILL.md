@@ -1,6 +1,6 @@
 ---
 name: init
-description: Set up the efficiency framework in this project — detect the stack, propose the quality gate, the criticality patterns and the declared defaults, then write .efficiency/policy.md and the permission fence. Run once per project. Use when the user asks to set up, configure, or adopt the efficiency framework.
+description: Set up the efficiency framework in this project — detect the stack, propose the quality gate, the criticality patterns and the declared defaults, then write .efficiency/policy.md and the permission fence. Run once per project. Use when the user asks to set up, configure or adopt the framework here — "set up the efficiency framework", "adopt this in my project", "configura il framework in questo progetto".
 ---
 
 # init
@@ -133,6 +133,22 @@ invasive write the framework makes, so treat it that way:
 - read the existing file first; never clobber it
 - add only; never remove or rewrite an existing rule
 - report every rule you added, one per line, with the reason
+- **expect the write to be refused, and know why.** Writes into `.claude/` are
+  governed by the session's permission mode: refused under `acceptEdits` and
+  `dontAsk`, allowed under `auto` and `bypassPermissions` — measured across
+  `Write`, `Edit` and `Bash` alike, which rules out working around it by
+  switching tool. This is the one thing in the whole setup you cannot do for the
+  developer in every session. So:
+
+  - try the write
+  - if it is refused, **say which of the two it is**: print the exact JSON to
+    paste, *and* say that re-running `/efficiency:init` in `auto` mode will
+    install it without the paste. A developer told only "I could not write it"
+    reads a broken framework; one told "your permission mode forbids this
+    directory, here are both ways out" reads a constraint with a handle on it
+  - either way, do not stop setting up. The fence is the one artefact the
+    framework can live without having installed automatically — everything else
+    it writes lives in `.efficiency/` precisely so it never depends on this
 - **also offer the status line**, in the same pass and in one line: it keeps the
   backlog count and its top three items permanently under the prompt, instead of
   announced once at session start and gone. Add it **only if `statusLine` is
@@ -218,11 +234,14 @@ The policy travels with the repo; the run state and the hook's own counters do
 not.
 
 **Not `.claude/`, and not `CLAUDE.md`.** Everything this framework writes lives
-in `.efficiency/` at the project root, because **Claude Code refuses writes into
-`.claude/`** — measured, across `Write`, `Edit` and `Bash`, and not liftable by a
-permission rule. Files the model has to update cannot live there. And the policy
-is injected into every session by the `SessionStart` hook, so there is nothing to
-`@`-include and no copy to drift.
+in `.efficiency/` at the project root, because **whether Claude Code accepts a
+write into `.claude/` depends on the session's permission mode** — refused under
+`acceptEdits` and `dontAsk`, allowed under `auto` and `bypassPermissions`,
+identically across `Write`, `Edit` and `Bash`, and not liftable by naming the
+tool in an allow rule. Files the model has to update every session cannot live
+somewhere that works in half of them. And the policy is injected into every
+session by the `SessionStart` hook, so there is nothing to `@`-include and no
+copy to drift.
 
 ## 4. Say what happens next
 

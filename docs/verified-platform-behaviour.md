@@ -9,7 +9,8 @@ Re-measure before trusting any of it after a Claude Code upgrade. The probes liv
 First measured: **2026-09-05** · Claude Code **2.1.261** · macOS 23.3.0
 Re-measured: **2026-10-10** · Claude Code **2.1.289** — § 3 unchanged, § 7 **expired**, § 9 corrected.
 Added: **2026-10-10** · Claude Code **2.1.296** — § 12, the status line.
-§ 9 may have expired too; see the note under it.
+Corrected: **2026-10-10** · Claude Code **2.1.296** — § 9 **rewritten**: the refusal is real, but it
+is governed by the permission mode, not by the tool, and it does not hold in all four.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -203,31 +204,45 @@ add a marketplace for you would be a repository that runs arbitrary hooks the mo
 Verified afterwards: with `enabledPlugins` committed and the marketplace known, a print-mode session
 in that project listed all eight components as `efficiency:*`.
 
-## 9. Claude Code refuses to write into `.claude/`
+## 9. Writes into `.claude/` are governed by the permission mode
 
-The finding that decided this framework's layout, and it was invisible for three releases.
+The finding that decided this framework's layout. It was measured once, under one permission mode,
+stated as a blanket refusal — and a later session saw the exact opposite. Both observations were
+correct. The variable nobody had controlled for was the mode.
 
-Measured on 2.1.289 under `--permission-mode acceptEdits`, four writes in one session:
+Measured on **2026-10-10**, Claude Code **2.1.296**, by `scripts/probes/dot-claude-writes.sh`: twelve
+headless sessions, four permission modes by three tools. Each session was asked to write in two
+places — the project root first, then `.claude/` inside it — and the filesystem was read afterwards
+rather than the session's own account of what it did. The root write is the control: when it lands
+and the `.claude/` write does not, the path is the reason and nothing else can be.
 
-| Write | Result |
-|---|---|
-| Edit an existing file **inside** `.claude/` | **denied** |
-| Create a new file **inside** `.claude/` | **denied** |
-| Edit an existing file one directory up | succeeded |
-| Create a new file one directory up | succeeded |
+| permission mode | `Write` | `Edit` | `Bash` |
+|---|---|---|---|
+| `acceptEdits` | refused | refused | refused |
+| `dontAsk` | refused | refused | refused |
+| `auto` | allowed | allowed | allowed |
+| `bypassPermissions` | allowed | allowed | allowed |
 
-Denied across tools: `Write`, `Edit` and `Bash` alike. Project `permissions.allow` rules naming the
-exact path did not lift it — `Write(.claude/…)`, `Edit(.claude/…)` and an absolute-path form were all
-tried. A session explained the refusal in its own words: *"denied as a sensitive file"*.
+Twelve cells, no inconclusive ones: in every cell the control write into the project root succeeded,
+so every refusal above is attributable to the path.
 
-**Why it mattered here.** This framework kept its run state at `.claude/efficiency.local.md` and its
-policy at `.claude/efficiency.md`. Both are files the *model* is expected to write: ticking a task
-closed, advancing to the next one, appending to the run log, and adding a declared default it had to
-invent. None of that could happen. The autopilot could not even arm itself, because arming means
-creating the run file.
+**The tool is not the variable.** `Write`, `Edit` and `Bash` behave identically within a mode, which
+rules out the obvious explanation that one tool has a path guard the others lack.
 
-That had been diagnosed twice as something else — once as a block reason missing its instructions,
-once as a model tidying away keys it did not recognise. Both plausible, both wrong.
+**A generic tool allow rule does not lift it.** Every session was run with `--allowedTools` naming
+the tool it was using, and the refusals above happened anyway. The earlier measurement additionally
+tried project `permissions.allow` rules naming the exact path, in `Write(.claude/…)`, `Edit(.claude/…)`
+and absolute-path forms, and none of them lifted it either. A session explained the refusal in its own
+words: *"denied as a sensitive file"*.
+
+### What it changes, and what it does not
+
+**The layout stands.** This framework used to keep its run state at `.claude/efficiency.local.md` and
+its policy at `.claude/efficiency.md` — files the *model* is expected to write: ticking a task closed,
+advancing to the next one, appending to the run log. The autopilot could not even arm itself, because
+arming means creating the run file. That had been diagnosed twice as something else — once as a block
+reason missing its instructions, once as a model tidying away keys it did not recognise. Both
+plausible, both wrong.
 
 Everything the model writes now lives in `.efficiency/` at the project root:
 
@@ -241,24 +256,19 @@ With that one move, a plain instruction — *"procedi fino a completarli tutti, 
 chiedermi conferma"* — armed the autopilot, drove four tasks and finished `DONE`. The first complete
 run in the project's history, and nothing about the mechanism had changed.
 
-**The general lesson:** a tool that writes nothing where you expected it to is not necessarily
-disobeying. Check whether it is allowed to write there at all, before concluding anything about its
-judgement.
+Knowing the refusal is mode-dependent does **not** argue for moving back. A plugin cannot know which
+mode a consumer runs in, two of the four refuse, and a layout that works in half of them is a layout
+that breaks for half of its users with no diagnostic. `.efficiency/` works in all four.
 
-### Possibly no longer true on 2.1.296 — UNVERIFIED
+**What it does change is the advice.** A write into `.claude/` that fails is not a framework defect
+and not the model declining: it is the session's permission mode, and the developer can lift it by
+choosing another one. That is the difference between "the permission fence could not be installed"
+and "re-run this in `auto` mode and it will install" — see `skills/init/SKILL.md`, which now says so.
 
-On **2026-10-10**, while building the status line, a session on 2.1.296 wrote `.claude/settings.json`
-through `Bash` repeatedly, and created and deleted a new file inside `.claude/`, without a single
-refusal. That is the opposite of the table above.
-
-It is recorded here as an **anomaly, not a correction**: it was one session, in one permission mode
-(this machine's "auto" mode, not the `acceptEdits` the table was measured under), and the table's
-claim was load-bearing enough that replacing it on a single uncontrolled observation would be
-exactly the folklore this document exists to prevent. There is no probe for § 9 yet — writing one,
-across the permission modes, is in the backlog.
-
-Until then, assume the refusal still happens: the framework's layout survives either way, and a skill
-that *tries* the write and prints the snippet when it fails is correct under both.
+**The general lesson, restated.** The first version of this section drew a blanket conclusion from a
+single uncontrolled cell, and was half wrong for three releases. A tool that writes nothing where you
+expected it to is not necessarily disobeying — but neither is one observation a rule. Vary the one
+thing you did not think was a variable.
 
 ## 10. Enabling a plugin takes two halves, and committing one is not enough
 

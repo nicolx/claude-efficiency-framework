@@ -1,6 +1,6 @@
 ---
 name: plan-run
-description: Turn an objective into an approved run — a task list where every item carries its criticality tier, its model, and observable acceptance criteria. This is the one place the developer's attention is spent. Use when the user wants to plan work for autonomous execution.
+description: Turn an objective into an approved run — a task list where every item carries its criticality tier, its model, and observable acceptance criteria. This is the one place the developer's attention is spent. Use when the user wants work planned before it is executed autonomously — "plan this out before we start", "turn this into a task list", "what would the run look like", "prepariamo il piano prima di partire".
 ---
 
 # plan-run

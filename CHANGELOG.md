@@ -10,6 +10,56 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.14.0] — 2026-10-10
+
+### Fixed — `.claude/` is not refused, it is refused in two permission modes out of four
+
+Section 9 of `docs/verified-platform-behaviour.md` said Claude Code refuses every write into
+`.claude/`. It was measured once, under `acceptEdits`, and stated as a blanket rule. A later session
+on 2.1.296 wrote `.claude/settings.json` repeatedly without a refusal — the exact opposite — and the
+contradiction sat in the backlog as an unexplained anomaly.
+
+`scripts/probes/dot-claude-writes.sh` settles it. Twelve headless sessions, four permission modes by
+three tools, each asked to write into the project root first and `.claude/` second so the root write
+is a control:
+
+| permission mode | `Write` | `Edit` | `Bash` |
+|---|---|---|---|
+| `acceptEdits` | refused | refused | refused |
+| `dontAsk` | refused | refused | refused |
+| `auto` | allowed | allowed | allowed |
+| `bypassPermissions` | allowed | allowed | allowed |
+
+Both observations were right. The variable nobody controlled for was the **permission mode**, and the
+tool turns out not to matter at all.
+
+**The layout does not change.** `.efficiency/` at the project root stays, because a plugin cannot know
+which mode a consumer runs in and a layout that works in half of them breaks for half its users with
+no diagnostic.
+
+**The advice changes.** `/efficiency:init` could never install the permission fence, and reported that
+as a graceful degradation — which reads as a broken framework. It now tries the write and, when it is
+refused, says which constraint it hit: the snippet to paste, *and* that re-running in `auto` mode
+installs it without the paste.
+
+### Added — the gate now catches a skill that can never be auto-invoked
+
+A skill's description is the entire input to the model's decision to invoke it. One that says what the
+skill does but never the words a developer would actually say fails in the way nobody notices: it
+simply never fires, and the session does the work the long way round.
+
+`scripts/lib/check-skill-triggers.py` requires each description to carry a "use when" clause, at least
+two quoted trigger phrases, and a length that can hold both. It ships with its own `--selftest`, which
+`scripts/qa.sh` runs first — a trigger check nobody has watched reject a vague description is worth
+exactly as much as no check at all.
+
+It caught **five of the seven shipped skills**. `fanout`, `init`, `plan-run`, `run` and `run-report`
+now name their triggers the way `autopilot` already did, in English and Italian — so a plain request
+can reach them.
+
+Whether quoted phrases actually change how often a skill fires is a house rule, not a measurement.
+Confirming it is in the backlog.
+
 ## [0.13.0] — 2026-10-10
 
 ### Added — documents get converted once, and the reason is not the one you would assume

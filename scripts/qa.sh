@@ -110,6 +110,10 @@ else
 fi
 
 # ── 4. every agent and skill has usable frontmatter ──────────────────────────
+# Two checks, because the frontmatter has to be both present and useful. A
+# skill's description is the whole input to the model's decision to invoke it,
+# so one that never names its trigger phrases fails in the way nobody notices:
+# it simply never fires.
 section "frontmatter"
 for f in agents/*.md skills/*/SKILL.md; do
     [ -e "$f" ] || continue
@@ -131,6 +135,26 @@ for f in agents/*.md skills/*/SKILL.md; do
         ok "$f"
     fi
 done
+
+if command -v python3 >/dev/null 2>&1; then
+    # The checker first proves it still refuses what it claims to refuse. A
+    # trigger check nobody has watched reject a vague description is worth
+    # exactly as much as no check at all.
+    if out=$(python3 scripts/lib/check-skill-triggers.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the trigger checker cannot reject a description it should"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+    if out=$(python3 scripts/lib/check-skill-triggers.py "$ROOT" 2>&1); then
+        ok "$out"
+    else
+        bad "a skill description cannot be auto-invoked"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+else
+    skip "skill trigger phrases" "python3 not found"
+fi
 
 # ── 5. paths written in prose are real ───────────────────────────────────────
 # A path in a document is a live reference: a consumer resolves it. When a file

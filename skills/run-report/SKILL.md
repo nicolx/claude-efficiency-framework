@@ -1,6 +1,6 @@
 ---
 name: run-report
-description: Report what a run actually did — tasks closed, decisions taken autonomously, spend by model and by tier, and what still needs a human. Also used to calibrate the spend ceiling from a real measurement. Use after a run finishes or stops.
+description: Report what a run actually did — tasks closed, decisions taken autonomously, spend by model and by tier, and what still needs a human. Also used to calibrate the spend ceiling from a real measurement. Use after a run finishes or stops, and whenever the user asks how it went or what it cost — "how did that run go", "what did it cost", "what still needs me", "quanto e costato quel run".
 ---
 
 # run-report
