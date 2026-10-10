@@ -131,60 +131,76 @@ Autonomy is bought with two things, not one. Both are conditions of use:
 
 Two steps, and they live in different places on purpose.
 
-**Once per machine** — add the marketplace:
+### 1. Add the marketplace — once per machine
 
 ```bash
 claude plugin marketplace add nicolx/claude-efficiency-framework
 ```
 
-**Once per project** — enable the plugin and commit that choice:
+This lands in **user** settings and does not travel with any repo. That is the right boundary:
+trusting a marketplace is the machine owner's decision, and a repository that could make it for you
+would be one that runs arbitrary hooks the moment you cloned it. (`--scope project` exists and writes
+`extraKnownMarketplaces` into a project, but measured: it is honoured only where the marketplace is
+*already* known to the machine. A project cannot cause a first-time fetch.)
+
+### 2. Enable the plugin — and pick the scope deliberately
+
+> ⚠ **`--scope` defaults to `user`.** Omitting it enables the plugin for every project on your
+> machine. That is often what you want — see below — but it should be a choice, not a surprise.
 
 ```bash
+# Everywhere on this machine. Nothing travels with any repo.
+claude plugin install efficiency@claude-efficiency-framework
+
+# Just this project, and committed so the team gets it.
 claude plugin install efficiency@claude-efficiency-framework --scope project
-```
-
-That writes exactly one thing into the project's `.claude/settings.json`, which you commit:
-
-```json
-{ "enabledPlugins": { "efficiency@claude-efficiency-framework": true } }
 ```
 
 Then **restart Claude Code** — hooks load at session start.
 
-**Why the marketplace step is separate, and stays yours.** `plugin install --scope project` writes
-only `enabledPlugins` into the project. The marketplace goes to *user* settings by default, and a
-teammate who clones runs that one command themselves. That is the right boundary: adding a
-marketplace is a trust decision, and a repository that could make it on your behalf could run
-arbitrary hooks the moment you cloned it.
+### Which scope
 
-`marketplace add --scope project` does exist, and writes `extraKnownMarketplaces` into the project
-instead. With the marketplace already on the machine that declaration is honoured. Whether a project
-declaring an **unknown** marketplace causes a first-time fetch could not be reproduced here — a
-project carrying only the hand-written keys stayed empty — so treat the two commands above as the
-path that is verified, and this as a convenience for machines that already trust the marketplace.
+| | `--scope user` (default) | `--scope project` |
+|---|---|---|
+| Install | once, ever | once per project |
+| Travels with the repo | no | **yes** — `enabledPlugins` is written into `.claude/settings.json`, which you commit |
+| A colleague who clones | gets nothing | gets it, once they have added the marketplace |
 
-### Updating — the trap that cost three runs
+**User scope is safer than it sounds, because the plugin is inert without `.efficiency/policy.md`.**
+Nothing fires, nothing is injected, nothing costs a token in a project that has not adopted it. So
+installing once for everything is not invasive — adoption stays a file, not a switch.
 
-Two commands, and the first one alone does nothing:
+**Recommendation:** `user` for your own projects — install once, then run `/efficiency:init` wherever
+you actually want it. **`project`** for shared repositories, so that cloning is enough.
+
+### Updating — the trap worth knowing
+
+Two commands, and the first alone does nothing:
 
 ```bash
-claude plugin marketplace update claude-efficiency-framework      # refreshes the catalogue
+claude plugin marketplace update claude-efficiency-framework     # refreshes the catalogue only
 claude plugin update efficiency@claude-efficiency-framework \
-    --scope project                                               # updates YOUR install
+    --scope project                                              # updates YOUR install
 ```
 
-`marketplace update` refreshes the catalogue and reports success; the plugin you are running stays
-at the version you installed. Worse, `plugin update` defaults to **user** scope, so against a
-`--scope project` install it fails with *"not installed at scope user"* — pass the scope you
-installed with. Then restart Claude Code.
+`marketplace update` reports success while the plugin you are running stays where it was. And
+`plugin update` defaults to **user** scope, so against a project-scope install it fails with *"not
+installed at scope user"* — which reads like the plugin is missing rather than like a scope
+mismatch. Pass the scope you installed with, then restart.
 
-Measured the hard way: three consecutive test runs of this framework silently executed **0.1.0**
-while two releases sat in the refreshed catalogue, and the conclusions drawn from those runs had to
-be retracted. `claude plugin list` shows the version actually installed — check it before believing
-a test result.
+**`claude plugin list` is the honest answer to "what am I running"** — but read it carefully: it
+prints one entry per project install with **no project path**, so two installs look like one plugin
+listed twice at different versions. `~/.claude/plugins/installed_plugins.json` records `projectPath`
+and disambiguates. Three test runs of this framework silently executed 0.1.0 because of that.
 
-There is otherwise no install script, no copied command files to keep in step, and no version
-marker.
+### Configure a project
+
+```text
+/efficiency:init
+```
+
+Nothing happens in a project until this has run. There is otherwise no install script, no copied
+command files to keep in step, and no version marker.
 
 **Everything this framework writes lives in `.efficiency/` at the project root** — the policy
 (committed), the run, and the hook's counters (both gitignored). Not in `.claude/`: Claude Code

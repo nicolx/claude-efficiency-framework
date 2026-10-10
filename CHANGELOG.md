@@ -10,6 +10,21 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.7.1] — 2026-10-10
+
+### Changed
+
+- **The install section leads with the scope.** `claude plugin install` defaults to **`--scope
+  user`**, which enables the plugin for every project on the machine — the README showed only
+  `--scope project` and never said what omitting it does. It now shows both, warns about the
+  default, and gives the rule for choosing: `user` for your own projects, because the plugin is inert
+  without `.efficiency/policy.md` and installing once costs nothing where it has not been adopted;
+  `project` for shared repositories, where `enabledPlugins` is committed so cloning is enough.
+- The marketplace and the plugin are now clearly two steps in two places, with the reason — trusting
+  a marketplace is the machine owner's decision, not a cloned repository's.
+- The update trap and the `plugin list` ambiguity moved into the install section, where someone
+  hitting them will actually be reading.
+
 ## [0.7.0] — 2026-10-10
 
 ### Added — use the tool, don't rebuild it
