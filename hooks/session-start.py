@@ -34,10 +34,13 @@ at all is worse than both.
 
 import json
 import os
+import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CHARTER = os.path.join(os.path.dirname(HERE), "AUTONOMY-CHARTER.md")
+PLUGIN_ROOT = os.path.dirname(HERE)
+CHARTER = os.path.join(PLUGIN_ROOT, "AUTONOMY-CHARTER.md")
 
 POLICY = os.path.join(".efficiency", "policy.md")
 RUN = os.path.join(".efficiency", "run.md")
@@ -120,6 +123,37 @@ def open_backlog(path):
     except OSError:
         return 0, []
     return len(items), items
+
+
+TOOLS_MAX_AGE_DAYS = 7
+
+
+def refresh_tools(project, plugin_root):
+    """Write .efficiency/tools.md when it is missing or stale.
+
+    The inventory used to be the adopter's job, via a script in the plugin's own
+    directory. Measured: a session cannot read or execute anything outside the
+    project it is working in, and it is never told where the plugin lives — so
+    that instruction could not be followed by anyone.
+
+    A hook has neither limitation. It knows CLAUDE_PLUGIN_ROOT and runs outside
+    the model's permission surface, so the inventory writes itself and no adopter
+    has to remember. Conditional on age because the detection shells out around
+    twenty-five times, which is fast but pointless at every session start.
+    """
+    out = os.path.join(project, TOOLS)
+    try:
+        if os.path.exists(out):
+            age = time.time() - os.path.getmtime(out)
+            if age < TOOLS_MAX_AGE_DAYS * 86400:
+                return
+        script = os.path.join(plugin_root, "scripts", "detect-tools.sh")
+        if not os.path.exists(script):
+            return
+        subprocess.run(["bash", script, project],
+                       capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return  # never fatal: a missing inventory costs tokens, not the session
 
 
 def available_tools(path):
@@ -211,6 +245,7 @@ def main():
                 "picking one up uninvited is the scope creep the deferral existed to prevent.\n\n"
                 "---\n\n" % (count, shown, more)) + text
 
+    refresh_tools(project, PLUGIN_ROOT)
     tools = available_tools(os.path.join(project, TOOLS))
     if tools:
         text += ("\n\n---\n\n# Operational tools already on this machine\n\n"
@@ -220,6 +255,15 @@ def main():
                  "cases wrong.\n\n" + "\n".join(tools) +
                  "\n\nA tool not listed here is not installed. If you need one, name it and offer "
                  "to install it once, rather than working around its absence.\n")
+
+    text += ("\n\n---\n\n# Where this plugin lives\n\n`%s`\n\n"
+             "**You cannot read or execute anything in there** — it is outside the directory this "
+             "session may touch, and that is the platform's rule, not a missing permission. The path "
+             "is here so you can hand the developer a command they can run themselves:\n\n"
+             "- `bash %s/scripts/check-install.sh .` — is this project's install working?\n"
+             "- `python3 %s/hooks/autopilot-stop.py --selftest` — is the autopilot's plumbing sound?\n\n"
+             "Everything you need yourself is inside the project, put there by these hooks.\n"
+             % (PLUGIN_ROOT, PLUGIN_ROOT, PLUGIN_ROOT))
 
     run_path = os.path.join(project, RUN)
     if os.path.exists(run_path):

@@ -396,6 +396,24 @@ def _():
     return p
 
 
+@case("the per-model split is written into the run file, not left to a script")
+def _():
+    # run-report cannot execute spend.py: it lives in the plugin's directory and
+    # nothing outside the project is reachable from a session. So the hook, which
+    # has no such limit, puts the answer where the model can read it.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
+    p.write_transcript([
+        ("claude-opus-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:00Z"),
+        ("claude-haiku-4-5", {"input_tokens": 1_000_000, "output_tokens": 0}, "2026-01-01T00:00:01Z"),
+    ])
+    p.invoke()
+    split = p.state().get("task_spend_by_model", "")
+    check("the per-model split is written into the run file, not left to a script",
+          "claude-opus-5=5000000" in split and "claude-haiku-4-5=1000000" in split,
+          "got %r" % split)
+    return p
+
+
 @case("spend over the ceiling: stops the task and asks for an opinion")
 def _():
     p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
@@ -856,12 +874,44 @@ def _():
     return p
 
 
-@case("no inventory: no tool section is injected")
+@case("a missing inventory is written by the hook, not left to the adopter")
 def _():
+    # It used to be the adopter's job, via a script in the plugin's directory —
+    # which a session can neither read nor locate. The hook has neither limit.
     p = Project(run_file=False).write_policy()
     _c, text = p.invoke_session_start()
-    check("no inventory: no tool section is injected",
-          "Operational tools" not in text, "announced tools with no inventory")
+    written = os.path.exists(os.path.join(p.dir, ".efficiency", "tools.md"))
+    check("a missing inventory is written by the hook, not left to the adopter",
+          written and "Operational tools" in text,
+          "written=%s announced=%s" % (written, "Operational tools" in text))
+    return p
+
+
+@case("a fresh inventory is not rewritten on every session")
+def _():
+    p = Project(run_file=False).write_policy().write_tools()
+    path = os.path.join(p.dir, ".efficiency", "tools.md")
+    before = os.path.getmtime(path)
+    os.utime(path, None)
+    p.invoke_session_start()
+    check("a fresh inventory is not rewritten on every session",
+          "pandoc" in open(path).read(),
+          "the fixture inventory was overwritten despite being fresh")
+    return p
+
+
+@case("the session is told where the plugin lives, and that it cannot read it")
+def _():
+    # The model is never given CLAUDE_PLUGIN_ROOT and cannot reach it anyway, so
+    # every skill instruction naming that path was one nobody could follow. The
+    # path is published for the developer to use, not the session.
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the session is told where the plugin lives, and that it cannot read it",
+          "Where this plugin lives" in text
+          and "cannot read or execute anything in there" in flat(text).lower()
+          and "check-install.sh" in text,
+          "the plugin path block is missing or incomplete")
     return p
 
 

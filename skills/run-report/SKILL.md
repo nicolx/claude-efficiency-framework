@@ -29,18 +29,21 @@ first line.
 **From `.efficiency/run.md`:** the task list and its marks, the log,
 `status`, `blocked_reason`, the counters, and any proposed policy additions.
 
-**Real spend**, measured from the transcript rather than estimated:
+**Real spend**, already measured for you. The autopilot writes two frontmatter
+keys into the run file every time it checks the ceiling:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/hooks/lib/spend.py" \
-    "<transcript path>" "<run start timestamp>" \
-    "${CLAUDE_PLUGIN_ROOT}/hooks/lib/model-costs.json" --by-model
-```
+- `task_spend_micro_usd` — the total since the current task opened;
+- `task_spend_by_model` — the same split per model, as `model=micro_usd` pairs.
 
-The transcript is the session's own JSONL under
-`~/.claude/projects/<slug>/<session-id>.jsonl`. The script sums subagent
-transcripts too — they are in a sibling directory and they are usually the
-expensive half.
+Divide by 1000000 for dollars. Both come from the session transcript, **subagent
+transcripts included** — those live in a sibling directory and are usually the
+expensive half, so a figure that ignored them would flatter the routing exactly
+where it costs most.
+
+Do not try to run the measuring script yourself. It lives in the plugin's own
+directory, and **nothing outside this project is reachable from a session** —
+that is the platform's rule, not a missing permission. Everything you need is put
+inside the project by the hooks.
 
 ## What to report
 

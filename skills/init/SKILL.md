@@ -80,10 +80,52 @@ that already exists.
 
 ## 3. Write
 
-**`.efficiency/policy.md`** — from `${CLAUDE_PLUGIN_ROOT}/templates/efficiency.md`,
-with your proposals filled in. If it already exists, **do not overwrite it**:
-show a diff of what you would change and let the developer choose. This file is
-theirs.
+**`.efficiency/policy.md`** — write it from the skeleton below, with your
+proposals filled in. If it already exists, **do not overwrite it**: show a diff of
+what you would change and let the developer choose. This file is theirs.
+
+The skeleton is written out here rather than copied from the plugin's own
+`templates/` on purpose. **A session cannot read anything outside the project it
+is working in**, and is never told where the plugin lives — so an instruction to
+copy a template from there is one nobody could follow. Measured, on the first
+adopter who tried.
+
+````markdown
+---
+gate: "<the command a developer runs before committing>"
+
+budget:
+  continuations: 40          # automatic restarts for the whole run
+  gate_retries: 2            # repair attempts on the same red gate
+  basket_usd: 0              # a period's worth of usage; 0 until measured
+  task_pct: 20               # per-task ceiling, as a share of the basket
+  task_usd: 5.00             # the fallback ceiling while basket_usd is 0
+
+tiers:                       # only the exceptions; everything else is "standard"
+  critical: []               # being wrong here is expensive and slow to discover
+  sensitive: []              # has a contract someone else depends on
+
+routing:
+  mechanical: { implement: haiku,  review: none, ask: never }
+  standard:   { implement: sonnet, review: none, ask: never }
+  sensitive:  { implement: sonnet, review: opus, ask: on_review_blocked }
+  critical:   { design: opus, implement: sonnet, review: opus, ask: before_done }
+
+stop_for:                    # the ONLY legitimate interruptions
+  - irreversible_or_outward_facing
+  - critical_tier_gate
+  - undeclared_decision_that_changes_the_deliverable
+  - gate_red_after_retries
+  - missing_secret_or_access
+---
+
+# Declared defaults
+
+The answers to questions you would otherwise be asked mid-run. A default earns
+its place only if it is **actionable without context**.
+
+- <one per line, read off what this repo already does>
+````
 
 **`.claude/settings.json`** — merge in the permission rules. This is the only
 invasive write the framework makes, so treat it that way:
@@ -94,21 +136,32 @@ invasive write the framework makes, so treat it that way:
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
-**`.efficiency/tools.md`** — run
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-tools.sh" .` to write it. It lists the
-operational tools this machine already has, and every session afterwards is told
-to use them instead of writing a script. **Gitignored**: it describes a machine,
-not a project, and a shared list describing someone else's laptop is worse than
-no list.
+**`.efficiency/tools.md`** — nothing to do. The `SessionStart` hook writes it
+itself, and refreshes it when it ages past a week. It lists the operational tools
+this machine has, and every session is told to use them instead of writing a
+script. **Gitignored**: it describes a machine, not a project.
 
-Mention what it found. If something obviously useful for this project's stack is
-missing — a document pipeline without `pandoc`, media work without `ffmpeg` —
-say so once and offer to install it. Do not install anything unasked.
+It will be there from the next session on. Mention that, and if something
+obviously useful for this project's stack is missing — a document pipeline
+without `pandoc`, media work without `ffmpeg` — say so once and offer to install
+it. Do not install anything unasked.
 
-**`.efficiency/backlog.md`** — from
-`${CLAUDE_PLUGIN_ROOT}/templates/backlog.md`, if it does not already exist. It is
-**committed**: a backlog is shared knowledge, and it outlives the session that
-filled it.
+**`.efficiency/backlog.md`** — write this, if it does not already exist. It is
+**committed**: a backlog is shared knowledge that outlives the session that filled
+it.
+
+````markdown
+# Backlog
+
+Things found while doing something else. **Each entry is work for a fresh
+session**, not for the one that found it.
+
+## Open
+
+<!-- - [ ] YYYY-MM-DD · what, in one line · found while: what you were doing -->
+
+## Closed
+````
 
 **`.gitignore`** — add `.efficiency/run.md`, `.efficiency/autopilot.json` and
 `.efficiency/tools.md`.
@@ -134,12 +187,12 @@ Four things, briefly:
 - **Hooks load at session start**, so none of this is live until Claude Code is
   restarted. Say it explicitly — a run that silently fails to continue looks like
   a broken framework rather than an unrestarted session.
-- Verify the plumbing with
-  `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py" --selftest`, and the
-  install itself with
-  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-install.sh" .` — which is also the
-  thing to run after any upgrade, since the way this framework breaks is
-  silently.
+- **Offer the two verification commands for the developer to run**, using the
+  plugin path given to you at session start — you cannot run them yourself, since
+  nothing outside this project is reachable from a session:
+  `check-install.sh .` for the install, and `autopilot-stop.py --selftest` for the
+  autopilot's plumbing. The second is also what to run after any upgrade, because
+  the way this framework breaks is silently.
 - **Work found along the way goes to `.efficiency/backlog.md`**, not into the
   session that found it, and open items are surfaced at the start of every
   session afterwards. Say this: it is the habit that keeps a session reviewable.

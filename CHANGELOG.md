@@ -10,6 +10,39 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.11.0] — 2026-10-10
+
+### Fixed — every skill instruction that pointed into the plugin was unfollowable
+
+Running `/efficiency:init` in a genuinely fresh project for the first time, it stopped and said so:
+it could not read the policy template, because **nothing outside the project a session is working in
+is reachable from that session** — `Read` asks for a permission that is not granted, `Bash` is
+blocked — and the model is never told `CLAUDE_PLUGIN_ROOT` either. Both measured.
+
+Seven instructions across `init` and `run-report` named that path. None of them could be followed by
+anyone. The first thing a new adopter does did not work.
+
+The rule the fix follows: **anything the model needs must be inside the project, put there by a
+hook** — hooks have neither limitation.
+
+- **The tool inventory writes itself.** `SessionStart` runs the detection when `.efficiency/tools.md`
+  is missing or older than a week. No adopter step, and it cannot go stale unnoticed.
+- **`init` carries the policy and backlog skeletons inline**, so it writes them without reading
+  anything.
+- **The per-model spend split is written into the run file** by the autopilot, as
+  `task_spend_by_model`, because `run-report` cannot execute `spend.py` any more than `init` could
+  read a template.
+- **`SessionStart` publishes the plugin's path** with a plain statement that the session cannot read
+  it — so the two operator commands can be handed to the developer, who can.
+
+### Also found
+
+`claude plugin marketplace remove` **rewrites project settings**, including committed ones. Removing
+the marketplace emptied `enabledPlugins` from this repo's tracked `.claude/settings.json` and left an
+unexplained `git diff`. Worth knowing before anyone does it on a shared repository.
+
+**62 selftest checks, 10 validator checks, 0 failed.**
+
 ## [0.10.0] — 2026-10-10
 
 Found by testing the previous release's own feature rather than trusting it.

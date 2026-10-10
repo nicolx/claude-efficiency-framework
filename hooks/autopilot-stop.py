@@ -268,20 +268,28 @@ def fingerprint(run):
 
 # ── the guards ───────────────────────────────────────────────────────────────
 
-def measure_spend(transcript, since):
-    """Micro-dollars spent since `since`, or None when it cannot be measured."""
+def measure_spend(transcript, since, by_model=False):
+    """Micro-dollars spent since `since`, or None when it cannot be measured.
+
+    With by_model, returns the parsed breakdown instead. The breakdown is written
+    into the run file because a session cannot execute spend.py itself: it lives
+    in the plugin's directory, and nothing outside the project is reachable from
+    a session. Anything the model needs has to be put inside the project by a
+    hook, and this is that.
+    """
     if not transcript or not since or not os.path.exists(transcript):
         return None
+    cmd = [sys.executable, SPEND, transcript, since, COSTS]
+    if by_model:
+        cmd.append("--by-model")
     try:
-        done = subprocess.run(
-            [sys.executable, SPEND, transcript, since, COSTS],
-            capture_output=True, text=True, timeout=60)
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
     try:
-        return int(done.stdout.strip())
+        return json.loads(done.stdout) if by_model else int(done.stdout.strip())
     except ValueError:
         return None
 
@@ -402,6 +410,13 @@ def main():
                 "efficiency autopilot: stopped — spend could not be measured for %s. "
                 "Check transcript_path and hooks/lib/spend.py." % task)
         run.set("task_spend_micro_usd", spent)
+        # The per-model split as well, so /efficiency:run-report can read it from
+        # the project instead of running a script it has no way to reach.
+        breakdown = measure_spend(payload.get("transcript_path"), started, by_model=True)
+        if isinstance(breakdown, dict):
+            by = breakdown.get("by_model") or {}
+            run.set("task_spend_by_model",
+                    ", ".join("%s=%s" % (m, v) for m, v in by.items() if v))
         run.save()
         if spent >= spend_max:
             priv.block_run(run, "%s reached its spend ceiling (%s of %s) without closing. "
