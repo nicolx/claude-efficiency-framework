@@ -12,6 +12,24 @@ You are writing two things into the project: a policy it will own and edit, and
 permission rules it will keep. Both are the developer's files afterwards. Propose,
 show, then write — never write first and report second.
 
+## 0. Is this a migration?
+
+If `.claude/efficiency.md` exists and `.efficiency/policy.md` does not, this
+project was set up before 0.4.0 and **the framework is currently inert** — the
+files moved because Claude Code refuses writes into `.claude/`, which had meant
+the model could never tick a task closed or arm the autopilot at all.
+
+Migrate before anything else, and say what you moved:
+
+| From | To |
+|---|---|
+| `.claude/efficiency.md` | `.efficiency/policy.md` |
+| `.claude/efficiency.local.md` | `.efficiency/run.md` |
+| `.claude/.efficiency-autopilot.json` | `.efficiency/autopilot.json` |
+
+Update `.gitignore` for the new paths, remove the old entries, then continue
+below — the policy's content is still good, only its home changed.
+
 ## 1. Read the repo before asking anything
 
 The point is to arrive with proposals, not a questionnaire. Find out for
@@ -117,7 +135,11 @@ Four things, briefly:
   restarted. Say it explicitly — a run that silently fails to continue looks like
   a broken framework rather than an unrestarted session.
 - Verify the plumbing with
-  `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py" --selftest`.
+  `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py" --selftest`, and the
+  install itself with
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-install.sh" .` — which is also the
+  thing to run after any upgrade, since the way this framework breaks is
+  silently.
 - **Work found along the way goes to `.efficiency/backlog.md`**, not into the
   session that found it, and open items are surfaced at the start of every
   session afterwards. Say this: it is the habit that keeps a session reviewable.

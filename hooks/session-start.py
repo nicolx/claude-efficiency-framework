@@ -44,6 +44,18 @@ RUN = os.path.join(".efficiency", "run.md")
 BACKLOG = os.path.join(".efficiency", "backlog.md")
 TOOLS = os.path.join(".efficiency", "tools.md")
 
+# Where these files lived before 0.4.0, when they were still under .claude/ and
+# could therefore never be written by the model. An install that upgraded across
+# that move has its policy in the old place and the plugin looking in the new
+# one, which makes the framework go INERT without saying a word — the worst way
+# for anything to fail. Detected here, loudly, and never migrated silently:
+# moving a developer's files unasked is the invasive act this framework avoids.
+LEGACY = [
+    (os.path.join(".claude", "efficiency.md"), ".efficiency/policy.md"),
+    (os.path.join(".claude", "efficiency.local.md"), ".efficiency/run.md"),
+    (os.path.join(".claude", ".efficiency-autopilot.json"), ".efficiency/autopilot.json"),
+]
+
 
 def frontmatter_value(path, key):
     """One frontmatter value, without pulling in a YAML parser for four lines."""
@@ -146,7 +158,25 @@ def main():
         return 0
 
     if not os.path.exists(os.path.join(project, POLICY)):
-        return 0  # not adopted here: say nothing, cost nothing
+        stale = [(old, new) for old, new in LEGACY
+                 if os.path.exists(os.path.join(project, old))]
+        if stale:
+            moves = "\n".join("  - `%s` → `%s`" % (old, new) for old, new in stale)
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": (
+                    "# ⚠ This project's efficiency framework is INERT after an upgrade\n\n"
+                    "It was set up before 0.4.0, when these files lived under `.claude/`. They moved "
+                    "because **Claude Code refuses writes into `.claude/`**, which meant the model "
+                    "could never tick a task closed, append to the run log, or arm the autopilot at "
+                    "all.\n\n"
+                    "Found in the old place:\n\n%s\n\n"
+                    "Until they move, nothing fires: no charter, no policy, no guards, and no "
+                    "warning other than this one. **Tell the developer in your first reply**, and "
+                    "offer to run `/efficiency:init`, which migrates them. Do not move their files "
+                    "without asking." % moves),
+            }}))
+        return 0  # not adopted here, or adopted at a version whose files have moved
 
     try:
         text = open(CHARTER, errors="replace").read()

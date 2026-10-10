@@ -173,25 +173,59 @@ installing once for everything is not invasive — adoption stays a file, not a 
 **Recommendation:** `user` for your own projects — install once, then run `/efficiency:init` wherever
 you actually want it. **`project`** for shared repositories, so that cloning is enough.
 
-### Updating — the trap worth knowing
+### Updating
 
-Two commands, and the first alone does nothing:
+You never uninstall. Two commands, and the first alone does nothing:
 
 ```bash
-claude plugin marketplace update claude-efficiency-framework     # refreshes the catalogue only
-claude plugin update efficiency@claude-efficiency-framework \
-    --scope project                                              # updates YOUR install
+claude plugin marketplace update claude-efficiency-framework      # refreshes the catalogue only
+claude plugin update efficiency@claude-efficiency-framework       # updates YOUR install
 ```
 
-`marketplace update` reports success while the plugin you are running stays where it was. And
-`plugin update` defaults to **user** scope, so against a project-scope install it fails with *"not
-installed at scope user"* — which reads like the plugin is missing rather than like a scope
-mismatch. Pass the scope you installed with, then restart.
+Then **restart Claude Code**. Check what you are actually on with `claude plugin list`.
 
-**`claude plugin list` is the honest answer to "what am I running"** — but read it carefully: it
-prints one entry per project install with **no project path**, so two installs look like one plugin
-listed twice at different versions. `~/.claude/plugins/installed_plugins.json` records `projectPath`
-and disambiguates. Three test runs of this framework silently executed 0.1.0 because of that.
+**Three traps, all measured here:**
+
+- `marketplace update` reports success while the plugin you are running stays exactly where it was.
+  It moves the catalogue, not your install.
+- `plugin update` auto-detects the scope in current versions, but against a project-scope install an
+  older one failed with *"not installed at scope user"* — which reads like the plugin is missing
+  rather than like a scope mismatch. Pass `--scope project` if it does.
+- **`claude plugin list` prints one entry per project install with no project path**, so two
+  installs look like one plugin listed twice at different versions.
+  `~/.claude/plugins/installed_plugins.json` records `projectPath` and disambiguates. Three test runs
+  of this framework silently executed 0.1.0 because of exactly that misreading.
+
+### Is the upgrade safe?
+
+Partly, and it is worth being precise about which part.
+
+**What is guaranteed.** The catalogue pins a release tag rather than tracking `main`, so you get a
+version that was deliberately published and never the middle of someone's refactor. The repo's own
+gate refuses to let a release ship whose tag, `VERSION` and changelog entry disagree.
+
+**What is not.** There is no `--version` flag on install or update: you get what the catalogue
+currently pins, and there is no supported rollback to an earlier release. If one bites you, the
+recourse is `claude plugin uninstall` and reinstalling from a marketplace you pin yourself.
+
+**The failure worth knowing about, because it is silent.** 0.4.0 moved every file this framework
+writes out of `.claude/` — Claude Code refuses writes there, which meant the model could never tick a
+task closed or arm the autopilot at all. A project upgraded across that move keeps its policy where
+0.3.x left it while the plugin looks in the new place, and **everything stops: no charter, no policy,
+no guards, and no error**.
+
+Two things now catch it. Any session in such a project is told, in the first thing it reads, that the
+install is inert and why. And:
+
+```bash
+bash scripts/check-install.sh                 # read-only: is this project's install working?
+```
+
+reports it directly, along with a missing gate, run state that would be committed, and a run left
+mid-flight. `/efficiency:init` performs the migration; nothing moves a developer's files unasked.
+
+**After any upgrade, the honest check is one line**: run `check-install.sh`, or simply start a
+session and see whether the charter arrives.
 
 ### Configure a project
 

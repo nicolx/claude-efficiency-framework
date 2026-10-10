@@ -162,6 +162,16 @@ else
     else
         ok "VERSION and plugin.json agree on $V_FILE"
     fi
+    V_REF=$(python3 -c 'import json
+s = json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
+print(s.get("ref", "") if isinstance(s, dict) else "")')
+    if [ -z "$V_REF" ]; then
+        skip "marketplace ref" "the catalogue pins no ref, so consumers track the default branch"
+    elif [ "$V_REF" != "v$V_FILE" ]; then
+        bad "marketplace.json pins $V_REF but VERSION says $V_FILE — consumers would get the wrong release"
+    else
+        ok "marketplace.json pins $V_REF, matching VERSION"
+    fi
     if grep -q "^## \[$V_FILE\]" CHANGELOG.md 2>/dev/null; then
         ok "CHANGELOG.md has an entry for $V_FILE"
     elif grep -q '^## \[Unreleased\]' CHANGELOG.md 2>/dev/null; then
@@ -171,7 +181,19 @@ else
     fi
 fi
 
-# ── 7. markdown lint, if available ───────────────────────────────────────────
+# ── 7. this repo's own install of its own framework ─────────────────────────
+# Dogfooding, and it has already earned its place: the check exists because an
+# upgrade across 0.4.0 leaves a project silently inert, and this repo is a
+# project like any other.
+section "own install"
+if out=$(bash scripts/check-install.sh "$ROOT" 2>&1); then
+    ok "$(printf '%s' "$out" | grep -E '^(CONFORMANT|NOT CONFORMANT)' | head -1)"
+else
+    bad "this repo's own install is not conformant"
+    printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# ── 8. markdown lint, if available ───────────────────────────────────────────
 section "markdown"
 if command -v npx >/dev/null 2>&1 && [ -f .markdownlint.json ]; then
     # Capture, then test the real exit status. Piping into `tail` would make the

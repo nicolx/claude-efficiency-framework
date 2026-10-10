@@ -10,6 +10,49 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.8.0] — 2026-10-10
+
+Upgrading was not safe, and the way it failed was silence.
+
+### Fixed — the silent-inertness upgrade
+
+0.4.0 moved every file this framework writes out of `.claude/`, and nothing was left to notice a
+project that upgraded across the move. Its policy stays where 0.3.x left it, the plugin looks in the
+new place, and **everything stops: no charter, no policy, no guards, and no error**. Reproduced on a
+simulated adopter: the hook printed nothing at all.
+
+- **`SessionStart` now reports it**, in the first thing a session reads: which files are in the old
+  place, where they belong, and that `/efficiency:init` migrates them. It does **not** move them —
+  moving a developer's files unasked is the invasive act this framework avoids.
+- **`/efficiency:init` migrates**, as step 0, before anything else.
+
+### Added
+
+- **`scripts/check-install.sh`** — read-only, no network: is this project's install actually working?
+  Catches the stale layout, a missing gate, run state that would be committed, a missing tool
+  inventory, and a run left mid-flight. Exit 0 conformant, 1 not, 2 cannot tell. It runs in this
+  repo's own gate, because this repo is a project like any other.
+- **The catalogue pins a release tag** instead of tracking `main`, so a consumer gets a version that
+  was deliberately published rather than whatever the default branch held this morning. The gate
+  fails a release whose tag, `VERSION` and changelog entry disagree.
+- A README section on upgrading that says what is **not** guaranteed: no `--version` on install or
+  update, so no supported rollback; the recourse is uninstall and reinstall from a catalogue you pin
+  yourself.
+
+### Changed
+
+- The three update traps now sit together in the install section: `marketplace update` moves the
+  catalogue and not your install; `plugin update` can report a scope mismatch as a missing plugin;
+  and `plugin list` prints one entry per project install **with no project path**, which is what made
+  three test runs here silently execute 0.1.0.
+
+### On "do we uninstall and reinstall each time?"
+
+No. `marketplace update` then `plugin update`, then restart. Uninstalling is only the fallback for
+the thing that has no first-class support — going *back* to an earlier release.
+
+**59 checks, 0 failed.**
+
 ## [0.7.1] — 2026-10-10
 
 ### Changed

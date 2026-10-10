@@ -714,6 +714,35 @@ def _():
     return p
 
 
+@case("a pre-0.4.0 install is reported loudly instead of going inert")
+def _():
+    # The worst failure this framework can have: upgrade across the path move,
+    # the policy stays where 0.3.x put it, the plugin looks elsewhere, and
+    # everything stops with no charter, no guards and no error.
+    p = Project(run_file=False)
+    with open(os.path.join(p.dir, ".claude", "efficiency.md"), "w") as fh:
+        fh.write("---\ngate: \"make check\"\n---\n")
+    code, text = p.invoke_session_start()
+    check("a pre-0.4.0 install is reported loudly instead of going inert",
+          code == 0 and "INERT after an upgrade" in text
+          and ".claude/efficiency.md` → `.efficiency/policy.md" in text
+          and "without asking" in flat(text),
+          "stale install not surfaced: %.70s" % text)
+    return p
+
+
+@case("a current install is not mistaken for a stale one")
+def _():
+    p = Project(run_file=False).write_policy()
+    with open(os.path.join(p.dir, ".claude", "efficiency.md"), "w") as fh:
+        fh.write("a leftover nobody cleaned up\n")
+    _c, text = p.invoke_session_start()
+    check("a current install is not mistaken for a stale one",
+          "INERT after an upgrade" not in text and "autonomy charter" in text.lower(),
+          "a leftover file hijacked a working install")
+    return p
+
+
 @case("no backlog file: nothing is announced")
 def _():
     p = Project(run_file=False).write_policy()

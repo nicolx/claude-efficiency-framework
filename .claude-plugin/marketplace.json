@@ -6,8 +6,13 @@
   "plugins": [
     {
       "name": "efficiency",
-      "source": "./",
-      "description": "Route each task to the right model, and stop confirming what was already agreed."
+      "source": {
+        "source": "github",
+        "repo": "nicolx/claude-efficiency-framework",
+        "ref": "v0.8.0"
+      },
+      "description": "Route each task to the right model, and stop confirming what was already agreed.",
+      "version": "0.8.0"
     }
   ]
 }
