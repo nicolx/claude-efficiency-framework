@@ -133,6 +133,27 @@ invasive write the framework makes, so treat it that way:
 - read the existing file first; never clobber it
 - add only; never remove or rewrite an existing rule
 - report every rule you added, one per line, with the reason
+- **also offer the status line**, in the same pass and in one line: it keeps the
+  backlog count and its top three items permanently under the prompt, instead of
+  announced once at session start and gone. Add it **only if `statusLine` is
+  absent** — a developer who already has one has made the decision this is
+  arguing for, and replacing it would be rude. If they decline, put
+  `statusline: off` in the policy frontmatter so nothing raises it again.
+
+  ```json
+  {
+    "statusLine": {
+      "type": "command",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR/.efficiency/statusline.py\"",
+      "padding": 0
+    }
+  }
+  ```
+
+  Unlike everything else here, **this one is live the moment it is saved** — a
+  status line is read per render, not bound at session start. The script it
+  names is written by the `SessionStart` hook, so it appears from the next
+  session on; say that if the line is blank at first.
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
@@ -145,6 +166,34 @@ It will be there from the next session on. Mention that, and if something
 obviously useful for this project's stack is missing — a document pipeline
 without `pandoc`, media work without `ffmpeg` — say so once and offer to install
 it. Do not install anything unasked.
+
+**One absence is worth raising by name, in every project: a PDF-to-Markdown
+converter.** Unlike the rest of the inventory this is not stack-specific. A
+session handed a PDF with nothing installed reads it as page images at about
+**1,300 tokens per page, whatever is printed on them** — a near-empty page costs
+the same as a full one, measured. Two tools, and the project wants both, because
+they are not alternatives:
+
+```bash
+command -v docling marker_single          # either one is enough to start
+python3 -c 'import sys; print(sys.version_info[:2])'   # 3.10+ is required
+```
+
+- **`pip install docling`** — the default, for everyday documents. MIT, runs on
+  CPU, keeps tables and figures.
+- **`pip install marker-pdf`** — the second opinion, for complex tables,
+  formulas and image-heavy pages, where docling's output comes out visibly
+  wrong. Heavier, slower, GPL-3.0, and it wants a GPU to be quick — which is why
+  it is the one you reach for second, not the one you standardise on.
+
+**Check the Python version before offering either, because pip will not.** Both
+need 3.10 or newer, and a Mac's `/usr/bin/python3` is frequently older. On 3.9
+the install does not fail: it silently resolves to the last release that still
+supported 3.9 — `pip3 download docling --no-deps` returns `docling-2.69.1` — and
+the developer ends up with an old converter nobody mentioned. Where the
+interpreter is too old, say that the real prerequisite is a newer Python
+(`brew install python@3.12`, or `uv`/`pipx`), and that it is a bigger ask than
+one line. Then let them decide.
 
 **`.efficiency/backlog.md`** — write this, if it does not already exist. It is
 **committed**: a backlog is shared knowledge that outlives the session that filled
@@ -163,8 +212,8 @@ session**, not for the one that found it.
 ## Closed
 ````
 
-**`.gitignore`** — add `.efficiency/run.md`, `.efficiency/autopilot.json` and
-`.efficiency/tools.md`.
+**`.gitignore`** — add `.efficiency/run.md`, `.efficiency/autopilot.json`,
+`.efficiency/tools.md` and `.efficiency/statusline.py`.
 The policy travels with the repo; the run state and the hook's own counters do
 not.
 
@@ -194,8 +243,10 @@ Four things, briefly:
   autopilot's plumbing. The second is also what to run after any upgrade, because
   the way this framework breaks is silently.
 - **Work found along the way goes to `.efficiency/backlog.md`**, not into the
-  session that found it, and open items are surfaced at the start of every
-  session afterwards. Say this: it is the habit that keeps a session reviewable.
+  session that found it. Open items are announced at the start of every session
+  afterwards and, if they took the status line, stay under the prompt for as
+  long as they are open. Say this: it is the habit that keeps a session
+  reviewable, and the status line is what stops a deferral becoming a deletion.
 - **They do not have to learn the commands.** Telling Claude to carry work
   through to the end — in any words, in any language — arms the same machinery
   that `/efficiency:plan-run` does. The commands are there for work worth

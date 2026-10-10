@@ -28,6 +28,11 @@ TOOLS="
 pandoc|convert between document formats — markdown, docx, html, pdf, epub
 soffice|LibreOffice headless: convert and render office documents
 libreoffice|LibreOffice headless: convert and render office documents
+docling|PDF, DOCX and PPTX to Markdown with tables and figures kept — the default converter
+marker_single|PDF to Markdown, best on complex tables, formulas and image-heavy pages
+marker|the same, over a whole folder at once
+mineru|PDF to Markdown, strong on scanned documents and CJK
+markitdown|quick Office and HTML to Markdown — light, but no layout model
 pdftotext|extract text from a PDF (poppler)
 pdftoppm|render PDF pages to images (poppler)
 qpdf|split, merge, rotate, decrypt PDFs

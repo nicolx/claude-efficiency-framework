@@ -190,8 +190,31 @@ Then do it the long way if they would rather not decide now. One offer, not a ne
 - if the project's CI will also need it, say that too. **A tool present on this machine and absent
   from CI is a difference that bites later**: the script works here and the pipeline breaks.
 
-**After anything is installed, re-run `scripts/detect-tools.sh`** so the next session knows. An
-inventory that silently falls behind sends the following session back to writing the script.
+**After anything is installed, delete `.efficiency/tools.md`.** The next session rewrites it — that
+file is the inventory, and it is refreshed whenever it is missing or more than a week old. Do not go
+looking for the detection script: it lives in the plugin, and nothing outside this project is
+reachable from a session. An inventory that silently falls behind sends the following session back
+to writing by hand what is already installed.
+
+### Documents: convert once to a file, then read the slice
+
+A PDF read page by page costs about **1,300 tokens a page whatever is printed on it** — measured; a
+page holding seven lines cost slightly *more* than the average full one. Converting a dense page to
+text saves almost nothing, so that is not the reason to do it. The reason is that text is
+**addressable**: converted once, forty pages that cost ~52,000 tokens to look through become one
+`grep` and one forty-line slice.
+
+So, faced with a PDF, a DOCX or a deck:
+
+- **plain text is enough** — `pdftotext -layout`;
+- **tables, figures, headings matter** — `docling <file> --to md`, the default;
+- **complex tables, formulas, image-heavy pages** — `marker_single`, second and only when docling
+  comes out visibly wrong: it is much the heavier tool;
+- **the layout IS the content** — a scan, a signature, how a chart looks: read the page image.
+  Converting first is strictly worse, and this is the one case where it is.
+
+Write the conversion **to a file** and reuse it. Piped straight into the session it throws away the
+only part worth having, and the second conversion pays for the document twice.
 
 ### Keeping tools current
 

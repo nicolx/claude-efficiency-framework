@@ -8,6 +8,8 @@ Re-measure before trusting any of it after a Claude Code upgrade. The probes liv
 
 First measured: **2026-09-05** · Claude Code **2.1.261** · macOS 23.3.0
 Re-measured: **2026-10-10** · Claude Code **2.1.289** — § 3 unchanged, § 7 **expired**, § 9 corrected.
+Added: **2026-10-10** · Claude Code **2.1.296** — § 12, the status line.
+§ 9 may have expired too; see the note under it.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -243,6 +245,21 @@ run in the project's history, and nothing about the mechanism had changed.
 disobeying. Check whether it is allowed to write there at all, before concluding anything about its
 judgement.
 
+### Possibly no longer true on 2.1.296 — UNVERIFIED
+
+On **2026-10-10**, while building the status line, a session on 2.1.296 wrote `.claude/settings.json`
+through `Bash` repeatedly, and created and deleted a new file inside `.claude/`, without a single
+refusal. That is the opposite of the table above.
+
+It is recorded here as an **anomaly, not a correction**: it was one session, in one permission mode
+(this machine's "auto" mode, not the `acceptEdits` the table was measured under), and the table's
+claim was load-bearing enough that replacing it on a single uncontrolled observation would be
+exactly the folklore this document exists to prevent. There is no probe for § 9 yet — writing one,
+across the permission modes, is in the backlog.
+
+Until then, assume the refusal still happens: the framework's layout survives either way, and a skill
+that *tries* the write and prints the snippet when it fails is correct under both.
+
 ## 10. Enabling a plugin takes two halves, and committing one is not enough
 
 Measured by removing each in turn, in real sessions:
@@ -315,6 +332,79 @@ catalogue, and the failures those runs appeared to demonstrate were attributed t
 Check which version a project is actually on — by path, not by the first line of output — before
 believing any test result about a plugin.
 
+## 12. The status line — the only continuously visible surface
+
+Measured **2026-10-10** on **2.1.296** with `scripts/probes/statusline.sh`, which installs a
+recorder as the project's `statusLine`, logs every invocation, and prints five numbered lines so the
+render can be counted by eye.
+
+| Question | Measured |
+|---|---|
+| How many printed lines are rendered? | **All five.** It is a block, not a line. |
+| How often is the command re-run? | Every **0.3–2.5s** — on conversation updates, not once per turn |
+| Does a settings change need a restart? | **No.** It is read live, unlike a hook |
+| `CLAUDE_PROJECT_DIR` in its environment? | **Set** |
+| `CLAUDE_PLUGIN_ROOT` in its environment? | **Not set** |
+| Is `$CLAUDE_PROJECT_DIR` expanded inside `command`? | **Yes** — verified with a marker file written by a probe reachable only through the expansion |
+| `COLUMNS` / `TERM`? | Both set (`238`, `xterm-256color`) — so width and colour can be decided honestly |
+| Working directory | the project root |
+
+Three of those decide the design, and each one would have been guessed wrong:
+
+- **Multi-line is real**, so the backlog can show a count *and* its top entries. A one-line budget
+  would have forced the items into a run of separators nobody reads.
+- **No `CLAUDE_PLUGIN_ROOT`**, so the command cannot name the plugin — and a plugin's install path
+  is not stable enough to hard-code. `hooks/session-start.py` copies `hooks/statusline.py` into
+  `.efficiency/statusline.py` instead, the same move the tool inventory made in 0.11.0.
+- **Re-run every second or so**, so it must stay one small file read. Anything that shells out, or
+  walks a tree, runs hundreds of times an hour on a developer's machine.
+
+The payload is the richest of any surface in this framework. It carries `cost.total_cost_usd` for
+the whole session, `rate_limits.five_hour.used_percentage`, `context_window.used_percentage`,
+`model.id`, `transcript_path`, `session_id` and `workspace.repo`. None of it is used yet: a status
+line that says four things says nothing.
+
+One inconsistency worth knowing: the payload reported `version: 2.1.289` while `claude --version`
+said `2.1.296` on the same machine, at the same moment. Do not use the payload's `version` to decide
+anything.
+
+## 13. What a PDF costs to read, and when converting it is worth anything
+
+Measured **2026-10-10** on **2.1.296**, Opus 5, with `scripts/probes/pdf-token-cost.sh` — which
+builds a five-page document whose last page holds seven lines on an otherwise empty sheet, and then
+recovers the cost of each tool result from the session transcript.
+
+| What was read | Result bytes | Tokens | Per page |
+|---|---|---|---|
+| The PDF, `pages="1-5"` | 1,263,085 | **6,402** | **1,280** |
+| The last page alone — seven lines of text | 52,725 | **1,390** | **1,390** |
+| The same five pages as text, via `pdftotext` | 15,700 | **5,838** | 1,168 |
+| A markdown document, for the prose ratio | 25,265 | 8,240 | 3.07 chars/token |
+
+Three things follow, and the second is the one that was assumed wrong here before it was measured.
+
+- **A page costs what a page costs.** The nearly-empty sheet cost *more* than the average full one.
+  Each page is rendered to an image of fixed dimensions, so the bill follows the page count and is
+  blind to whether anything is printed on it. A forty-page report of charts and white space costs
+  the same as forty pages of solid prose.
+
+- **Converting a dense page to text saves almost nothing — about 9% here.** At roughly 2.7–3.1
+  characters per token, the break-even is **3,400–3,900 characters per page**: a page of margin-to-
+  margin text is already at the crossing point, and a denser one is genuinely cheaper read as pixels.
+  The intuition that converting is a large per-page saving is false, and the framework must not be
+  built on it.
+
+- **The saving is in the pages you then do not read.** Converted once, a document is greppable:
+  forty pages that would cost ~52,000 tokens to look through become one search and one 40-line
+  slice, for a few hundred. That is the real multiple, and it is a property of text being
+  addressable, not of text being smaller. It also means the conversion has to happen **once**, to a
+  file on disk — a conversion whose output is piped straight into the session has thrown away the
+  only part that was worth having.
+
+And the limit worth stating with them: when what matters is the *layout* — a scan, a signature, a
+figure whose appearance is the content — the page image is the correct thing to read, and converting
+first is strictly worse. Fidelity, not frugality, decides that one.
+
 ## Re-running these measurements
 
 ```bash
@@ -322,6 +412,8 @@ bash scripts/probes/stop-cap.sh stall 40   # expect ~9 invocations, platform cap
 bash scripts/probes/stop-cap.sh read  12   # expect 6, bound by --max-turns, cap never fires
 bash scripts/probes/stop-cap.sh write 12   # expect 6, same
 bash scripts/probes/transcript-shape.sh <path-to-transcript.jsonl>  # show subagents directory and usage keys present
+bash scripts/probes/statusline.sh install   # then start a session, look at the bottom, and `show`
+bash scripts/probes/pdf-token-cost.sh make # build the test PDF; read it in a session, then `measure <transcript>`
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook

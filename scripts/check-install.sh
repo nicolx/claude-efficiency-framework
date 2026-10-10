@@ -194,6 +194,10 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
             bad "$f is not gitignored — run state or a machine inventory would be committed"
         fi
     done
+    if [ -f "$ROOT/.efficiency/statusline.py" ] \
+       && ! git -C "$ROOT" check-ignore -q .efficiency/statusline.py 2>/dev/null; then
+        note ".efficiency/statusline.py is not gitignored — it is a copy of plugin code, refreshed by the hook"
+    fi
     for f in .efficiency/policy.md .efficiency/backlog.md; do
         if [ ! -e "$ROOT/$f" ]; then
             note "$f does not exist yet"
@@ -227,6 +231,40 @@ if [ -f "$RUN" ]; then
     esac
 else
     ok "no run in flight"
+fi
+
+# The status line is optional, so neither state is a problem — but a half-wired
+# one is. A settings file that names the script while the script is absent paints
+# a blank line under the prompt, and a blank line is exactly how this framework
+# fails worst: silently, looking fine.
+SL_DECL=$(python3 - "$ROOT" <<'PYEOF' 2>/dev/null
+import json, os, sys
+root = sys.argv[1]
+for name in ("settings.json", "settings.local.json"):
+    try:
+        with open(os.path.join(root, ".claude", name)) as fh:
+            sl = json.load(fh).get("statusLine") or {}
+        if sl:
+            print(sl.get("command", "yes"))
+            break
+    except Exception:
+        continue
+PYEOF
+)
+SL_SCRIPT="$ROOT/.efficiency/statusline.py"
+if [ -n "$SL_DECL" ] && [ -f "$SL_SCRIPT" ]; then
+    LINES=$(echo '{}' | CLAUDE_PROJECT_DIR="$ROOT" NO_COLOR=1 python3 "$SL_SCRIPT" 2>/dev/null | wc -l | tr -d ' ')
+    ok "status line wired and printing $LINES line(s)"
+elif [ -n "$SL_DECL" ] && [ ! -f "$SL_SCRIPT" ]; then
+    case "$SL_DECL" in
+        *statusline.py*)
+            bad "settings declare a status line, but .efficiency/statusline.py is missing"
+            hint "it is written by the SessionStart hook — start one session, or the line stays blank" ;;
+        *) ok "the project has a status line of its own" ;;
+    esac
+else
+    note "no status line — the backlog is announced once per session and then scrolls away"
+    hint "offer it: python3 \"\$CLAUDE_PROJECT_DIR/.efficiency/statusline.py\" in .claude/settings.json"
 fi
 
 # ── verdict ─────────────────────────────────────────────────────────────────

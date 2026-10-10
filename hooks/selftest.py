@@ -32,6 +32,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "autopilot-stop.py")
 SESSION_START = os.path.join(HERE, "session-start.py")
+STATUSLINE = os.path.join(HERE, "statusline.py")
 
 FRONT = """\
 status: {status}
@@ -112,6 +113,28 @@ class Project:
         with open(os.path.join(self.dir, ".efficiency", "policy.md"), "w") as fh:
             fh.write(text)
         return self
+
+    def write_settings(self, data):
+        """The project's `.claude/settings.json`, which the model cannot write."""
+        with open(os.path.join(self.dir, ".claude", "settings.json"), "w") as fh:
+            json.dump(data, fh)
+        return self
+
+    def invoke_statusline(self, columns="120", script=None):
+        """Invoke the status line exactly as Claude Code does.
+
+        Measured in scripts/probes/statusline.sh: the payload arrives on stdin,
+        no arguments are passed, and `CLAUDE_PROJECT_DIR` and `COLUMNS` are both
+        set in the environment. `script` points at the project's own deployed
+        copy when the case is about deployment rather than about rendering.
+        """
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir,
+                   COLUMNS=columns, NO_COLOR="1")
+        payload = {"cwd": self.dir, "workspace": {"project_dir": self.dir}}
+        done = subprocess.run([sys.executable, script or STATUSLINE],
+                              input=json.dumps(payload), capture_output=True,
+                              text=True, env=env, timeout=30)
+        return done.returncode, done.stdout
 
     def invoke_session_start(self):
         payload = {"cwd": self.dir, "hook_event_name": "SessionStart"}
@@ -1053,6 +1076,191 @@ def _():
     check("a dated model id is priced as itself, not as the expensive fallback",
           900_000 <= spent <= 1_100_000, "measured %s micro-usd, expected ~1000000" % spent)
     return p
+
+
+# ── 9. the status line: the backlog, permanently visible ─────────────────────
+#
+# The one surface that is re-rendered under the prompt on every conversation
+# update, so it is also the one the developer cannot miss and cannot escape.
+# Measured properties it depends on are in docs/verified-platform-behaviour.md
+# § 12; these cases cover what this repo controls.
+
+BACKLOG_FIXTURE = """# Backlog
+
+```text
+- [ ] 2020-01-01 · the documented example, which is not an item · found while: writing the template
+```
+
+## Open
+
+- [ ] 2026-02-01 · the first thing worth reporting: with evidence after a colon · found while: elsewhere
+- [ ] 2026-01-01 · the second thing, which is older than the first · found while: elsewhere
+- [ ] 2026-03-01 · the third thing, stated at length. And then a detail · found while: elsewhere
+- [ ] 2026-04-01 · the fourth thing, below the fold · found while: elsewhere
+
+## Closed
+
+- [x] 2025-01-01 · closed, and must not be counted · found while: elsewhere
+"""
+
+
+@case("a project that never adopted gets no status line at all")
+def _():
+    p = Project(run_file=False).write_backlog(BACKLOG_FIXTURE)
+    code, out = p.invoke_statusline()
+    check("a project that never adopted gets no status line at all",
+          code == 0 and out == "", "code=%s out=%r" % (code, out))
+    return p
+
+
+@case("the status line prints the count and the top three items")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline()
+    lines = out.rstrip("\n").split("\n")
+    check("the status line prints the count and the top three items",
+          len(lines) == 4
+          and "4 open" in lines[0]
+          and lines[1].strip().startswith("1. the first thing")
+          and lines[2].strip().startswith("2. the second thing")
+          and lines[3].strip().startswith("3. the third thing"),
+          "got %r" % (lines,))
+    return p
+
+
+@case("entries are cut to their headline: no evidence, no 'found while'")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline()
+    body = "\n".join(out.split("\n")[1:])
+    check("entries are cut to their headline: no evidence, no 'found while'",
+          "found while" not in body
+          and "with evidence" not in body
+          and "And then a detail" not in body,
+          "got %r" % (body,))
+    return p
+
+
+@case("the fenced example in the template is not counted as an item")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline()
+    # The status line and the session-start announcement read the same file with
+    # the same rules. If they ever disagree, neither number is believed again.
+    _c2, text = p.invoke_session_start()
+    check("the fenced example in the template is not counted as an item",
+          "4 open" in out.split("\n")[0] and "4 open backlog item(s)" in text,
+          "status line said %r; session start said %r"
+          % (out.split("\n")[0], flat(text)[:120]))
+    return p
+
+
+@case("the oldest date is the oldest, not the first line")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline()
+    check("the oldest date is the oldest, not the first line",
+          "oldest 2026-01-01" in out.split("\n")[0], "got %r" % out.split("\n")[0])
+    return p
+
+
+@case("an empty backlog still prints, so a blank line means broken")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog("# Backlog\n\n## Open\n\n## Closed\n")
+    _c, out = p.invoke_statusline()
+    check("an empty backlog still prints, so a blank line means broken",
+          "backlog clear" in out, "got %r" % out)
+    return p
+
+
+@case("a narrow terminal keeps the count and the command, and drops the rest")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline(columns="52")
+    head = out.split("\n")[0]
+    check("a narrow terminal keeps the count and the command, and drops the rest",
+          len(head) <= 52 and "4 open" in head and "/efficiency:backlog" in head
+          and "oldest" not in head,
+          "got %r (%d chars)" % (head, len(head)))
+    return p
+
+
+@case("a corrupt backlog cannot take the status line down")
+def _():
+    p = Project(run_file=False).write_policy()
+    with open(os.path.join(p.dir, ".efficiency", "backlog.md"), "wb") as fh:
+        fh.write(b"\xff\xfe not text at all \x00\x00 - [ ] \xc3\x28")
+    code, out = p.invoke_statusline()
+    check("a corrupt backlog cannot take the status line down",
+          code == 0 and "Traceback" not in out, "code=%s out=%r" % (code, out))
+    return p
+
+
+@case("SessionStart deploys the status line script into the project")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    p.invoke_session_start()
+    deployed = os.path.join(p.dir, ".efficiency", "statusline.py")
+    same = (os.path.exists(deployed)
+            and open(deployed, "rb").read() == open(STATUSLINE, "rb").read())
+    # And the deployed copy must work from where it landed: the command Claude
+    # Code runs names that path, not this repo's.
+    code, out = (p.invoke_statusline(script=deployed) if same else (1, ""))
+    check("SessionStart deploys the status line script into the project",
+          same and code == 0 and "4 open" in out,
+          "deployed=%s code=%s out=%r" % (same, code, out))
+    return p
+
+
+@case("a project with no statusLine is offered one, with the block to paste")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("a project with no statusLine is offered one, with the block to paste",
+          "statusLine" in text and ".efficiency/statusline.py" in text
+          and "Offer it once" in flat(text),
+          "the offer is missing from the injection")
+    return p
+
+
+@case("a statusLine the developer already has is never mentioned")
+def _():
+    p = Project(run_file=False).write_policy().write_settings(
+        {"statusLine": {"type": "command", "command": "my-own-thing"}})
+    _c, text = p.invoke_session_start()
+    check("a statusLine the developer already has is never mentioned",
+          "statusLine" not in text, "the hook offered to replace an existing one")
+    return p
+
+
+@case("statusline: off in the policy silences the offer for good")
+def _():
+    p = Project(run_file=False).write_policy(
+        "---\ngate: \"make check\"\nstatusline: off\n---\n\n# Declared defaults\n\n- none\n")
+    _c, text = p.invoke_session_start()
+    check("statusline: off in the policy silences the offer for good",
+          "statusLine" not in text, "the opt-out did not silence it")
+    return p
+
+
+
+@case("the status line command is written identically everywhere it is shipped")
+def _():
+    # One fact, one place — and when it cannot be one place, a test. The command
+    # a developer pastes is given by the SessionStart injection and again by
+    # skills/init/SKILL.md, and a drift between them installs a status line that
+    # points at nothing in whichever project followed the stale one.
+    # Matched as a plain substring, not a regex: one file quotes it for JSON
+    # inside a Python string and the other writes it in a fenced block, so the
+    # backslashes differ by design. The path is the part that must not drift.
+    wanted = "$CLAUDE_PROJECT_DIR/.efficiency/statusline.py"
+    found = {}
+    for name in (SESSION_START,
+                 os.path.join(os.path.dirname(HERE), "skills", "init", "SKILL.md")):
+        found[os.path.basename(name)] = open(name, errors="replace").read().count(wanted)
+    check("the status line command is written identically everywhere it is shipped",
+          all(n == 1 for n in found.values()), "occurrences: %s" % found)
+
 
 
 def run():

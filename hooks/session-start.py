@@ -46,6 +46,12 @@ POLICY = os.path.join(".efficiency", "policy.md")
 RUN = os.path.join(".efficiency", "run.md")
 BACKLOG = os.path.join(".efficiency", "backlog.md")
 TOOLS = os.path.join(".efficiency", "tools.md")
+STATUSLINE = os.path.join(".efficiency", "statusline.py")
+
+# Both files Claude Code merges project settings from. A status line declared in
+# either one is installed, and only a project that has neither gets offered one.
+SETTINGS = [os.path.join(".claude", "settings.json"),
+            os.path.join(".claude", "settings.local.json")]
 
 # Where these files lived before 0.4.0, when they were still under .claude/ and
 # could therefore never be written by the model. An install that upgraded across
@@ -156,6 +162,54 @@ def refresh_tools(project, plugin_root):
         return  # never fatal: a missing inventory costs tokens, not the session
 
 
+def refresh_statusline(project, plugin_root):
+    """Copy hooks/statusline.py into the project, replacing an older copy.
+
+    The status line is the framework's only continuously visible surface, and the
+    command that paints it cannot name the plugin: measured, its environment has
+    `CLAUDE_PROJECT_DIR` but **no `CLAUDE_PLUGIN_ROOT`**, and a plugin's install
+    path is not stable enough to hard-code into a developer's settings anyway.
+
+    So the script travels into the project, by the same rule that moved the tool
+    inventory here: anything outside the project is unreachable from a session,
+    and a hook is the one thing that can see both sides. Copied on content, not
+    on age — a plugin upgrade must reach the status line the next session, and
+    the file is small enough that comparing it costs nothing.
+    """
+    src = os.path.join(plugin_root, "hooks", "statusline.py")
+    dst = os.path.join(project, STATUSLINE)
+    try:
+        wanted = open(src, "rb").read()
+    except OSError:
+        return
+    try:
+        if os.path.exists(dst) and open(dst, "rb").read() == wanted:
+            return
+        with open(dst, "wb") as fh:
+            fh.write(wanted)
+        os.chmod(dst, 0o755)
+    except OSError:
+        return  # never fatal: a stale status line is better than a dead session
+
+
+def statusline_declared(project):
+    """True when either settings file already declares a `statusLine`.
+
+    An existing one is never touched. A developer who has built their own status
+    line has made exactly the decision this framework otherwise argues for, and
+    overwriting it to say the same thing differently would be the rudest possible
+    way to deliver a reminder.
+    """
+    for name in SETTINGS:
+        try:
+            with open(os.path.join(project, name), errors="replace") as fh:
+                if json.load(fh).get("statusLine"):
+                    return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
 def available_tools(path):
     """The `name — purpose` half of each available tool, versions dropped.
 
@@ -244,6 +298,35 @@ def main():
                 "Do not start on any of it unless they ask: these were set aside on purpose, and "
                 "picking one up uninvited is the scope creep the deferral existed to prevent.\n\n"
                 "---\n\n" % (count, shown, more)) + text
+
+    # The backlog is also published continuously, under the prompt, by a status
+    # line — because announcing it here once is demonstrably not enough: this
+    # injection is ~18 KB, the harness truncates it to a 2 KB preview, and the
+    # instruction above asks for two lines in one reply. The script is refreshed
+    # unconditionally; wiring it into settings stays the developer's call.
+    refresh_statusline(project, PLUGIN_ROOT)
+    if (not statusline_declared(project)
+            and (frontmatter_value(os.path.join(project, POLICY), "statusline")
+                 or "").lower() != "off"):
+        text += ("\n\n---\n\n# The backlog is not permanently visible here\n\n"
+                 "This project has no `statusLine`, so the backlog above is announced once per "
+                 "session and then scrolls away. `.efficiency/statusline.py` is already in place "
+                 "and prints the open count and the top three items under the prompt, re-rendered "
+                 "on every update.\n\n"
+                 "**Offer it once, in one line, then drop the subject.** It takes effect "
+                 "immediately — a status line is read live, unlike a hook. To install, merge into "
+                 "`.claude/settings.json`:\n\n"
+                 "```json\n"
+                 "{\n"
+                 "  \"statusLine\": {\n"
+                 "    \"type\": \"command\",\n"
+                 "    \"command\": \"python3 \\\"$CLAUDE_PROJECT_DIR/.efficiency/statusline.py\\\"\",\n"
+                 "    \"padding\": 0\n"
+                 "  }\n"
+                 "}\n"
+                 "```\n\n"
+                 "If they decline, add `statusline: off` to the frontmatter of "
+                 "`.efficiency/policy.md` so this is never raised again.\n")
 
     refresh_tools(project, PLUGIN_ROOT)
     tools = available_tools(os.path.join(project, TOOLS))

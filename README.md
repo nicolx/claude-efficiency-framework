@@ -93,6 +93,24 @@ improvement spotted mid-task is exactly what quietly doubles a diff nobody agree
 the charter, with instructions to mention them once and **not** to start on them. Picking one up
 because it is in front of you is the same scope creep, one session later.
 
+**And they stay in front of you.** Announced once, a backlog is gone by the third reply — on this
+repo that injection reached 18 KB, the harness truncated it to a preview, and the text that did
+survive asked for two lines in one reply. So `/efficiency:init` also offers a **status line**: the
+open count and the top three items, re-rendered under the prompt on every update, for as long as
+they are open.
+
+```text
+⚠ backlog: 12 open · oldest 2026-10-10 · +9 more · /efficiency:backlog
+  1. /efficiency:init cannot write the permission fence
+  2. The session that builds a release can never run it
+  3. Model routing has never been observed working
+```
+
+It is one file read per render and nothing else, because it is re-run every second or so — measured,
+along with the fact that all of its lines are shown and that it takes effect without restarting the
+session, in § 12 of `docs/verified-platform-behaviour.md`. An existing `statusLine` is never
+replaced, and `statusline: off` in the policy frontmatter ends the subject.
+
 Each entry carries a `found while:` clause, because a fresh session has none of the context that
 made the thing obvious — and that is the cheapest way to hand it back.
 
@@ -102,9 +120,11 @@ The expensive failure is not a missing tool — it is a **present tool nobody kn
 pull text out of a PDF, a session that doesn't know `pdftotext` is installed writes Python with
 pypdf, fights the encodings, and spends thousands of tokens on what one command does in fifty.
 
-So `init` runs `scripts/detect-tools.sh`, and every session afterwards is handed the list of
-operational tools this machine actually has — document conversion, PDF, CSV, media, search,
-platform CLIs — with what each is for.
+So the `SessionStart` hook runs `scripts/detect-tools.sh` itself — nothing for an adopter to
+remember, and nothing for a session to reach outside its own project — and every session is handed
+the list of operational tools this machine actually has: document conversion, PDF, CSV, media,
+search, platform CLIs, with what each is for. It is rewritten whenever it is missing or more than a
+week old, so deleting it after an install is how you refresh it.
 
 **Gitignored, because it describes a machine and not a project.** A colleague's laptop is a
 different laptop, and a shared list describing someone else's is worse than no list.
@@ -115,6 +135,26 @@ it too. *A tool present on your machine and absent from CI is a difference that 
 
 Tools are checked for staleness at most once per session, and **never updated mid-task**: a version
 change alters behaviour under work already in progress.
+
+### And one absence the framework now raises by name
+
+Reading a PDF costs **~1,300 tokens per page whatever is printed on it** — measured, and a page
+holding seven lines cost slightly *more* than the average full one, because each page is rendered to
+an image of fixed size and the bill never looks at the content.
+
+What that does **not** buy you is the obvious conclusion. Converting a densely printed page to text
+saved **9%** here: at ~3 characters per token the break-even is around 3,500 characters a page, which
+is roughly a page of margin-to-margin prose. Converting is worth doing for a different reason —
+converted once **to a file**, a document becomes greppable, and forty pages that would cost ~52,000
+tokens to look through become one search and one forty-line slice.
+
+So `init` now checks for a PDF-to-Markdown converter in every project, not just document-shaped ones,
+and offers two: **docling** for everyday documents, **marker** for the complex tables and image-heavy
+pages where docling comes out visibly wrong. It checks the Python version first, because `pip` will
+not — on 3.9 `pip install docling` silently resolves to the last release that supported it.
+
+And the case where converting is simply the wrong move is written into the charter alongside the
+rest: when the layout **is** the content — a scan, a signature, how a chart looks — read the page.
 
 ## The bargain
 
@@ -280,6 +320,10 @@ hook: any open backlog items, the autonomy charter, the project's own policy —
 `stop_for`, declared defaults — and the list of operational tools this machine has. Around 3,000
 tokens, with nothing to `@`-include and no copy in your `CLAUDE.md` to keep in step.
 
+The same hook writes `.efficiency/statusline.py` into the project, because the status line command
+is not told where the plugin lives — measured. It is gitignored: it is a copy of plugin code, and it
+is refreshed whenever the plugin changes.
+
 ## Using it
 
 | Step | Command | How often |
@@ -374,10 +418,16 @@ documentation:
   ceiling on autonomy.
 - **`transcript_path` arrives in the `Stop` payload**, though the reference does not list it for that
   event. This is what makes spend measurable at all.
+- **A status line renders every line its command prints**, is re-run on conversation updates rather
+  than once per turn, and takes effect without restarting the session. That is what makes a four-line
+  backlog reminder possible at all — and what makes it a single file read.
 - **Subagent turns are not in the main transcript.** `isSidechain` is in the schema and reads like a
   promise, but they live in `<session>/subagents/agent-*.jsonl`. On the session that built this
   framework they were **17% of real spend** — and a ceiling blind to them is a ceiling on the cheap
   work only.
+- **A PDF page costs the same whether it is full or nearly empty** — ~1,300 tokens either way — and
+  converting a dense page to text saves about 9%, not an order of magnitude. The saving is in the
+  pages you then never read, which is why the conversion has to go to a file.
 
 ## Requirements and limits
 
@@ -406,7 +456,8 @@ If your project declares a standard, the reviewer applies it too. If not, it sti
 .claude-plugin/   plugin and marketplace manifests
 agents/           implementer-fast (haiku) · architect (opus) · reviewer (opus)
 skills/           init · plan-run · run · fanout · run-report
-hooks/            the autopilot Stop hook, the SessionStart charter, the spend meter
+hooks/            the autopilot Stop hook, the SessionStart charter, the spend meter,
+                  the backlog status line
 templates/        the policy and permission scaffolding a project owns
 scripts/          this repo's own gate, and the platform probes
 docs/             what was measured, and how to measure it again

@@ -10,6 +10,101 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.13.0] — 2026-10-10
+
+### Added — documents get converted once, and the reason is not the one you would assume
+
+A session handed a PDF reads it as page images. Measured on 2.1.296 with the new
+`scripts/probes/pdf-token-cost.sh`, which builds a five-page document whose last page holds seven
+lines on an otherwise empty sheet:
+
+| What was read | Tokens | Per page |
+|---|---|---|
+| The PDF, `pages="1-5"` | 6,402 | **1,280** |
+| The last page alone — seven lines | 1,390 | **1,390** |
+| The same five pages as text | 5,838 | 1,168 |
+
+**The near-empty page cost more than the average full one.** Each page becomes an image of fixed
+size, so the bill follows the page count and never looks at the content.
+
+And the comfortable conclusion is wrong: converting that dense document to text saved **9%**, not an
+order of magnitude. At ~3 characters per token the break-even is around 3,500 characters a page —
+roughly a page of margin-to-margin prose. What converting actually buys is that text is
+**addressable**: done once, to a file, forty pages that would cost ~52,000 tokens to look through
+become one `grep` and one forty-line slice. The framework says that, rather than the easier claim.
+
+- **`AUTONOMY-CHARTER.md`** carries the rule: convert once to a file, then read the slice;
+  `pdftotext` when plain text is enough, `docling` when tables and figures matter, `marker_single`
+  for the complex and image-heavy cases where docling comes out visibly wrong — and **read the page
+  image when the layout is the content**, a scan or a signature, where converting is strictly worse.
+- **`scripts/detect-tools.sh`** recognises `docling`, `marker_single`, `marker`, `mineru` and
+  `markitdown`, so a converter that is already installed stops being invisible.
+- **`/efficiency:init` raises the absence by name in every project**, not only document-shaped ones,
+  and offers both tools: docling for everyday documents, marker for the hard ones. It checks the
+  interpreter first, **because `pip` will not** — both need Python 3.10+, and on 3.9 the install does
+  not fail, it silently resolves to the last release that still supported it (`pip3 download docling
+  --no-deps` returns `docling-2.69.1`, verified).
+- **`scripts/probes/pdf-token-cost.sh`** and **§ 13 of `docs/verified-platform-behaviour.md`** record
+  the measurement and how to take it again.
+
+### Fixed — two instructions that named something the reader cannot reach
+
+- The charter told sessions to re-run `scripts/detect-tools.sh` after installing a tool. That script
+  lives in the plugin, and **nothing outside the project is reachable from a session** — the same
+  defect fixed for skills in 0.11.0, left behind in the one sentence that most needed it, and now
+  about to be followed much more often. It now says to delete `.efficiency/tools.md`, which the
+  `SessionStart` hook rewrites.
+- The README still credited `init` with running the detection. The hook has done it since 0.11.0.
+
+## [0.12.0] — 2026-10-10
+
+### Added — the backlog is now permanently visible, not announced once
+
+A backlog announced at session start is gone by the third reply. Measured on this repo: the
+`SessionStart` injection had grown to **18 KB**, the harness truncated it to a 2 KB preview, and the
+part that survived instructed the session to mention the backlog *once, in no more than two lines*.
+Work deliberately deferred was therefore visible for one reply out of a session.
+
+A **status line** fixes exactly that, and nothing else fixes it: it is the only surface in Claude
+Code re-rendered under the prompt on every conversation update.
+
+```text
+⚠ backlog: 12 open · oldest 2026-10-10 · +9 more · /efficiency:backlog
+  1. /efficiency:init cannot write the permission fence
+  2. The session that builds a release can never run it
+  3. Model routing has never been observed working
+```
+
+- **`hooks/statusline.py`** — the count, the oldest date, and the top three entries cut to their
+  headline. One file read per render, because it is re-run every second or so.
+- **`hooks/session-start.py` deploys it** to `.efficiency/statusline.py` and refreshes it whenever
+  the plugin changes. The status line command is **not** given `CLAUDE_PLUGIN_ROOT` — measured — so
+  it cannot name the plugin, and a plugin's install path is not stable enough to hard-code.
+- **`/efficiency:init` offers it**, never installs it over an existing `statusLine`, and
+  `statusline: off` in the policy frontmatter ends the subject permanently.
+- **`scripts/check-install.sh`** reports a half-wired status line as a problem: a settings file that
+  names a script that is not there paints a blank line, and a blank line is how this framework fails
+  worst — silently, looking fine.
+- **Twelve selftest cases**, including the ones that prove it stays quiet: no policy, no line at all;
+  an existing status line is never mentioned; the opt-out silences the offer; a corrupt backlog
+  cannot take it down.
+
+### Measured — `docs/verified-platform-behaviour.md` § 12, the status line
+
+New probe, `scripts/probes/statusline.sh`. Three results decided the design and all three would have
+been guessed wrong: **every line printed is rendered** (not just the first), **`CLAUDE_PLUGIN_ROOT`
+is absent** from its environment while `CLAUDE_PROJECT_DIR` and `COLUMNS` are present, and **a
+settings change is live without restarting the session** — unlike a hook, which is bound at session
+start. Its payload also carries `cost.total_cost_usd`, `rate_limits` and `context_window`; none of
+it is used, because a status line that says four things says nothing.
+
+### Noted — § 9 may have expired, and is not being rewritten on one observation
+
+"Claude Code refuses writes into `.claude/`" did not reproduce on 2.1.296: this session wrote
+`.claude/settings.json` through `Bash` repeatedly, unrefused. Recorded as an **anomaly** under § 9
+and filed in the backlog, because it was one session in one permission mode and that claim decides
+the framework's whole file layout. There is still no probe for it; writing one is the backlog entry.
+
 ## [0.11.0] — 2026-10-10
 
 ### Fixed — every skill instruction that pointed into the plugin was unfollowable

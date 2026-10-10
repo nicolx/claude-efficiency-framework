@@ -8,14 +8,14 @@ If you are in a project that has *adopted* the framework, this file is not what 
 ## What this repo is
 
 A Claude Code **plugin**, distributed through its own marketplace manifest. It ships documents,
-skills, agents and three Python hooks — no application code.
+skills, agents, three Python hooks and the status line they deploy — no application code.
 
 | Path | Audience | Role |
 |---|---|---|
 | `AUTONOMY-CHARTER.md` | consumers | Injected into every adopting session by `hooks/session-start.py`. Loaded constantly, so every line is paid for repeatedly. |
 | `agents/*.md` | consumers | Pinned-model subagents. The `model:` field is the framework's whole premise. |
 | `skills/*/SKILL.md` | consumers | Invoked as `/efficiency:<name>`. |
-| `hooks/` | consumers | The autopilot, the charter carrier, the spend meter. The only executable code here. |
+| `hooks/` | consumers | The autopilot, the charter carrier, the spend meter, the backlog status line. The only executable code here. `statusline.py` is not a hook: `session-start.py` copies it into the project, because the status line command is never told where the plugin is. |
 | `templates/` | consumers | Scaffolding the **project** owns once written. Never overwritten. |
 | `docs/verified-platform-behaviour.md` | this repo | The measured facts the design rests on. |
 | `scripts/probes/` | this repo | How to measure them again. |

@@ -1,5 +1,10 @@
 {
   "enabledPlugins": {
     "efficiency@claude-efficiency-framework": true
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"$CLAUDE_PROJECT_DIR/.efficiency/statusline.py\"",
+    "padding": 0
   }
 }

@@ -29,6 +29,7 @@ context that made the thing obvious, and "found while" is the cheapest way to gi
 - [ ] 2026-10-10 · CI never runs the probes in scripts/probes/. They cost money and call the API, so CI only shellchecks them — which means a platform change is caught only when a human remembers to re-run them. Last time that took a month, and section 7 had expired · found while: re-measuring against 2.1.289 and finding a documented behaviour had quietly stopped being true
 - [ ] 2026-10-10 · scripts/qa.sh has no check that every skill's description names its trigger phrases · found while: adding the autopilot skill and noticing nothing would catch a description too vague to be auto-invoked
 - [ ] 2026-10-10 · the spend ceiling is checked only at turn boundaries, so one very long turn can overshoot · found while: writing the README's limits section
+- [ ] 2026-10-10 · Section 9 of docs/verified-platform-behaviour.md — Claude Code refuses writes into .claude/ — did not reproduce on 2.1.296: a session wrote .claude/settings.json through Bash repeatedly, unrefused. It is an anomaly, not a correction, because it was one session in one permission mode and the claim decides the whole file layout. Write the probe that is missing: Write, Edit and Bash, across permission modes · found while: building the status line, which had to edit settings.json to install itself
 
 ## Closed
 
