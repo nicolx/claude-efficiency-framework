@@ -379,7 +379,10 @@ if [ "$MISS" -eq 0 ] && [ "$MISFIRE" -eq 0 ] && [ "$CONTROL_FIRED" -eq 0 ] && [ 
     echo "         languages, and no skill claims a request that is not its business."
 elif [ "$MISS" -gt 0 ]; then
     echo "verdict: UNREACHABLE SKILLS — the rows marked 'never fired' cannot be invoked"
-    echo "         except by typing their command. Their descriptions are the defect."
+    echo "         except by typing their command. Read their transcripts before blaming"
+    echo "         the wording: a skill whose task the model would rather perform than"
+    echo "         delegate is missed however well its description is written, and that"
+    echo "         is a different problem with a different fix."
     exit 1
 elif [ "$CONTROL_FIRED" -gt 0 ]; then
     echo "verdict: OVER-MATCHING — a skill fired on a control. A description that claims"
