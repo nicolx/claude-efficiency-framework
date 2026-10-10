@@ -218,11 +218,33 @@ Two things now catch it. Any session in such a project is told, in the first thi
 install is inert and why. And:
 
 ```bash
-bash scripts/check-install.sh                 # read-only: is this project's install working?
+bash scripts/check-install.sh                 # read-only: does this project's install work?
 ```
 
-reports it directly, along with a missing gate, run state that would be committed, and a run left
-mid-flight. `/efficiency:init` performs the migration; nothing moves a developer's files unasked.
+### The validator
+
+It checks the **chain**, not the files — because files that look right in a project where nothing is
+enabled is a project where nothing happens, and an earlier version of this script cheerfully reported
+CONFORMANT for exactly that.
+
+| | |
+|---|---|
+| Prerequisites | `python3` present, and 3.7 or newer |
+| Reachability | the plugin is actually enabled here — project scope, user scope, or neither — and at which version |
+| Project files | policy present and in the right place; frontmatter parses; `budget`, `tiers`, `routing`, `stop_for` declared; defaults written |
+| The gate | declared, its runner on `PATH`, and its target actually existing — a gate pointing at a renamed script fails on every turn |
+| Hooks, actually run | all three are invoked and their output checked; this is the difference between *looks right* and *works* |
+| Hygiene | run state and inventory gitignored, policy and backlog tracked |
+| State | a run left `ACTIVE` or `BLOCKED` |
+
+Exit `0` conformant, `1` not, `2` cannot tell. Read-only, no network, and it never runs your gate —
+a validator that executes a test suite is one nobody runs.
+
+`scripts/test-check-install.sh` proves it can fail, across nine scenarios, and both run in this
+repo's own gate. A validator that cannot report a problem is worse than none: it says the install is
+fine about nothing at all.
+
+`/efficiency:init` performs the migration; nothing moves a developer's files unasked.
 
 **After any upgrade, the honest check is one line**: run `check-install.sh`, or simply start a
 session and see whether the charter arrives.

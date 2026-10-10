@@ -10,6 +10,48 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.9.0] — 2026-10-10
+
+### Changed — the validator now checks the chain, not the files
+
+0.8.0 shipped `check-install.sh`, and re-reading it against the question *"does this install actually
+work?"* it did not answer it: it inspected the project's own files and never asked whether the plugin
+was reachable at all. Given a project with a perfect `.efficiency/` and the plugin **not installed**,
+it reported **CONFORMANT**. A validator that says the install is fine about nothing is worse than no
+validator.
+
+It now walks the whole chain:
+
+- **Prerequisites** — `python3` present and 3.7 or newer, the version the hooks need.
+- **Reachability** — is the plugin enabled for *this* project: project scope, user scope, or neither,
+  and at which version. Distinguishes "the CLI installed it but no settings file enables it" from
+  "never installed", because the fix differs.
+- **Policy shape** — frontmatter parses and closes; `budget`, `tiers`, `routing` and `stop_for` are
+  declared; defaults are written. A policy missing a section does not fail loudly at runtime — the
+  model simply never sees that part, which is the same silent degradation this script exists for.
+- **The gate** — not only declared but **resolvable**: its runner on `PATH` and its target actually
+  existing. A gate pointing at a renamed script fails on every turn. It is never executed: a
+  validator that runs your test suite is one nobody runs.
+- **Hooks, actually run** — all three invoked and their output checked. This is the difference
+  between *looks right* and *works*.
+- Hygiene and run state as before.
+
+### Added
+
+- **`scripts/test-check-install.sh`** — nine scenarios proving the validator can fail, including the
+  one 0.8.0 got wrong. Both it and the validator run in this repo's own gate.
+
+### Fixed, found while building it
+
+- A project that had never adopted the framework was being reported as a failure, because the
+  enablement check ran before anything knew whether adoption had happened. Adoption is settled first
+  now, and "not enabled" is a note rather than a problem where nothing has been adopted.
+- Two shellcheck findings in the new code: a redundant environment assignment the forked process
+  could not see, and a captured hook output that was never shown — it is now printed when the hook
+  misbehaves, which is the only time anyone wants it.
+
+**59 selftest checks and 9 validator checks, 0 failed.**
+
 ## [0.8.0] — 2026-10-10
 
 Upgrading was not safe, and the way it failed was silence.

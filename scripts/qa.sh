@@ -185,6 +185,14 @@ fi
 # Dogfooding, and it has already earned its place: the check exists because an
 # upgrade across 0.4.0 leaves a project silently inert, and this repo is a
 # project like any other.
+section "the validator itself"
+if out=$(bash scripts/test-check-install.sh 2>&1); then
+    ok "$(printf '%s' "$out" | grep -E '^[0-9]+ checks' | head -1)"
+else
+    bad "the install validator cannot report a problem it should"
+    printf '%s\n' "$out" | grep -E '^\s+FAIL' | sed 's/^/        /'
+fi
+
 section "own install"
 if out=$(bash scripts/check-install.sh "$ROOT" 2>&1); then
     ok "$(printf '%s' "$out" | grep -E '^(CONFORMANT|NOT CONFORMANT)' | head -1)"
