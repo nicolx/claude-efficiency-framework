@@ -54,6 +54,24 @@ model mid-session, changing effort, editing `CLAUDE.md` while you work, enabling
 from a choice you re-make every session into a property of the repository. Everything else here is
 plumbing for that.
 
+## Is it done? The question every report must answer
+
+The charter carries a rule that costs nothing and changes what you read: **the first line of any
+hand-back is a verdict** — DONE, NOT DONE, or BLOCKED — and then the detail.
+
+With a definition of done that refuses the comfortable answers:
+
+- the gate must be **green and run**. **Unverified is not done**, it is unknown;
+- nothing left deliberately failing, nothing kept "for later", no problem found and not fixed;
+- a green gate does not make a task done when something outside the gate was left broken.
+
+And a reporting shape that keeps three things apart — what was delivered, what is still open and who
+it waits on, and what was found along the way. **A finding is not a deliverable:** three problems
+found and one fixed is *one fixed, two open*, never "three addressed".
+
+This exists because of a real report — dense, accurate, full of genuine findings, and impossible to
+answer *"is this finished?"* from without reading to the end.
+
 ## The bargain
 
 Autonomy is bought with two things, not one. Both are conditions of use:

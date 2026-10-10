@@ -461,8 +461,10 @@ def main():
         run.set("status", "DONE")
         run.set("blocked_reason", "")
         run.save()
-        allow_with_note("efficiency autopilot: run complete, every task closed and the "
-                        "gate green.")
+        allow_with_note("efficiency autopilot: run complete — every task closed and the gate "
+                        "green. Report it to the developer starting with the verdict on its own "
+                        "line (DONE / NOT DONE / BLOCKED), then the detail. If any task was closed "
+                        "whose criteria you cannot confirm, the honest verdict is NOT DONE.")
 
     # ── guard 4: is the run actually advancing? ──────────────────────────────
     # A task whose work is finished but whose box is never ticked looks identical

@@ -8,6 +8,22 @@ description: Report what a run actually did — tasks closed, decisions taken au
 Report what the run did, so the developer can read it instead of having watched
 it.
 
+## Open with the verdict, on its own line
+
+Before anything else, answer the question the reader actually has:
+
+| Verdict | When |
+|---|---|
+| **DONE** | Every task closed, every acceptance criterion observably met, gate green and run. |
+| **NOT DONE** | Anything remains. The next lines are the list of what, and nothing else. |
+| **BLOCKED** | A guard stopped the run, or it needs a decision only the developer can make. |
+
+A task you marked closed but cannot confirm from the diff makes the run **NOT DONE**. So does a gate
+you could not run: unverified is unknown, not finished.
+
+Everything below the verdict is detail for someone who wants it. Nothing in it may contradict the
+first line.
+
 ## What to gather
 
 **From `.efficiency/run.md`:** the task list and its marks, the log,
@@ -46,6 +62,11 @@ that the routing policy is or is not earning its keep.
 behind it. If DONE, say the gate was green and every task closed.
 
 **What needs a human**, as a short list of actual decisions, not a summary.
+
+**Keep deliverables, open items and findings apart.** A finding is not a
+deliverable: three problems found and one fixed is *one fixed, two open*, never
+"three addressed". A mistake made during the run belongs in the open list while
+it is unresolved, not only in the narrative.
 
 ## Calibrating the ceiling
 

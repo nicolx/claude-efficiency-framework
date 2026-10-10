@@ -10,6 +10,51 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.5.0] — 2026-10-10
+
+### Added — the question a report must answer
+
+**Is it done?** A report the reader has to decode is not a report, and nothing in this framework had
+ever said so. The charter now carries three things, and they reach every session:
+
+- **What done means.** Every acceptance criterion observably met, the gate green *and run*, nothing
+  left that was intended. And what it does not mean: **unverified is not done, it is unknown.**
+  Neither is something left deliberately red, anything kept "for later", or a problem found and not
+  fixed. A green gate does not make a task done when something outside the gate was left failing —
+  those are two questions and only one of them is the gate's.
+- **Lead with the verdict.** The first line of any hand-back is exactly one of **DONE**, **NOT
+  DONE**, **BLOCKED**, in the language of the conversation, then the detail. A reader who stops after
+  the first line must not be misled.
+- **Keep three kinds of thing apart**: what was delivered, what is still open and who it waits on,
+  and what was found along the way. A finding is not a deliverable — three problems found and one
+  fixed is *one fixed, two open*, not "three addressed". An unresolved mistake belongs in the open
+  list, not only in the narrative.
+
+`run`, `run-report` and `autopilot` all carry the same rule, and the hook's own completion message
+now asks for the verdict — it is the last thing the model reads before writing the report.
+
+### Why
+
+From a real report: dense, accurate, full of genuine findings, and impossible to answer *"is this
+finished?"* from. It ended with "gate green" while elsewhere noting that something stays red by
+design, that cases still need writing, and that a broken CI configuration meant two commits never
+ran — which means unverified, which means not done. All true, none of it decidable without reading
+to the end.
+
+### Verified
+
+All three verdicts observed, used discriminately: **DONE** on completed and gate-verified work,
+**NOT DONE** when the gate could not run, **BLOCKED** when a command needed approval the session
+could not get. Each opened the report, with delivered and open items separated beneath. 44 checks,
+0 failed.
+
+### Also recorded
+
+`docs/verified-platform-behaviour.md` § 7: permission rules are still gated by workspace trust, and
+2.1.289 now **says so** instead of ignoring them in silence — it names the entry it dropped and how
+to grant trust. Trust did not stop mattering; it stopped gating hooks, and it stopped being
+invisible.
+
 ## [0.4.0] — 2026-10-10
 
 The release that found out why nothing ever finished.

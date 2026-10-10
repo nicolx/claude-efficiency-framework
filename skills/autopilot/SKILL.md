@@ -97,6 +97,12 @@ run can go before it stops and asks:
 Then start working. Do not wait for confirmation — the instruction to keep going
 was the confirmation.
 
+## When the work ends
+
+Open with the verdict — **DONE**, **NOT DONE** or **BLOCKED** — on its own line, then the detail.
+That is the charter's rule and it applies here exactly as in a planned run: the developer armed this
+instead of watching, so the one thing they need first is whether it finished.
+
 ## Disarming
 
 When the developer says to stop, or that they want to be asked again, set

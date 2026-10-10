@@ -145,6 +145,13 @@ than late, but for a *known* model priced as the fallback that is a tenfold erro
 > `stop-cap.sh` passes its configuration with `--settings`. That remains good practice — it makes a
 > probe independent of whatever the trust rules happen to be — but it is no longer a necessity.
 >
+> **Permission rules are still gated by trust, and 2.1.289 now says so.** An untrusted workspace
+> prints `Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been
+> trusted`, and names the fix — accept the dialog interactively once, or set
+> `projects["<path>"].hasTrustDialogAccepted: true` in `~/.claude.json`. On 2.1.261 the same thing
+> happened in silence. So trust has not stopped mattering; it stopped gating *hooks*, and it stopped
+> being invisible.
+>
 > One trap found while confirming this: `PreToolUse` appeared not to fire, which looked like trust
 > gating and was not. It simply had no tool call to intercept. Given a prompt that actually runs a
 > command, it fires. **A hook that never had its trigger is indistinguishable from a hook that was

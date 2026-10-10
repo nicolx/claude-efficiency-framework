@@ -62,6 +62,16 @@ whole design is arranged to prevent.
    A task marked done that is *not* done is the opposite failure and it is worse:
    it is the one lie that makes the whole log untrustworthy.
 
+## Reporting back
+
+Whenever you hand work back — at the end, or when a guard stops the run — **open with the verdict**:
+DONE, NOT DONE, or BLOCKED, on its own first line, then the detail. The charter has the rule and the
+reader has the question: *is this finished?* It must be answerable without reading to the end.
+
+Unverified is not done. A gate you could not run, a task closed whose criteria you cannot confirm,
+anything left deliberately failing — each makes the honest verdict NOT DONE, whatever else was
+achieved.
+
 ## The log is the deal
 
 Every decision you take without asking goes in the `## Log` section, one line:

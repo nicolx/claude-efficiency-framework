@@ -687,6 +687,38 @@ def _():
     return p
 
 
+@case("the charter defines done, and says unverified is not done")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter defines done, and says unverified is not done",
+          "Unverified is not done" in text and "the gate is green, and you ran it" in text,
+          "the done-rule is not in the charter")
+    return p
+
+
+@case("the charter demands a verdict on the first line")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter demands a verdict on the first line",
+          "**DONE**" in text and "**NOT DONE**" in text and "**BLOCKED**" in text
+          and "stops after the first line" in text,
+          "the verdict contract is not in the charter")
+    return p
+
+
+@case("a completed run is told to report with a verdict")
+def _():
+    p = Project(tasks="- [x] T1 done").seed_private()
+    _c, out = p.invoke()
+    msg = out.get("systemMessage", "")
+    check("a completed run is told to report with a verdict",
+          p.state()["status"] == "DONE" and "NOT DONE" in msg and "verdict" in msg,
+          "DONE message: %.90s" % msg)
+    return p
+
+
 @case("the charter tells the model to arm on a plain keep-going instruction")
 def _():
     p = Project(run_file=False).write_policy()

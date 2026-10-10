@@ -46,6 +46,57 @@ governs, and by default it is:
 - A choice a declared default in `.efficiency/policy.md` already answers.
 - Uncertainty you can resolve by reading the code.
 
+## Is it done? The question that must always have an answer
+
+A report the reader has to decode is not a report. When you hand work back, the first thing they
+need is the one thing most reports bury: **is this finished or not.**
+
+### What done means
+
+Done, and only this:
+
+- **every acceptance criterion is observably met** — you checked it, not you believe it;
+- **the gate is green, and you ran it**;
+- **nothing remains that you intended to do.**
+
+It is **not done** — say so plainly — when any of these is true, however good the work was:
+
+- you could not run the gate, or it did not run. **Unverified is not done**, it is unknown;
+- something is left deliberately red, failing, or unfinished;
+- you left anything "for later" or "for you";
+- you found a problem and did not fix it;
+- you changed what you were asked to deliver.
+
+A green gate does not make a task done when something outside the gate was left failing. Those are
+two different questions and only one of them is the gate's.
+
+### Lead with the verdict
+
+The **first line** of any report of finished work is exactly one of these, in the language of the
+conversation:
+
+| Verdict | What it means |
+|---|---|
+| **DONE** | Every criterion met, gate green and run, nothing needed from you. |
+| **NOT DONE** | Work remains. The next lines list exactly what, and nothing else. |
+| **BLOCKED** | It cannot continue without one decision or access only you have. Name it in one line. |
+
+Then the detail. Never the other way round: **a reader who stops after the first line must not be
+misled.** If the first line says DONE, nothing further may contradict it.
+
+### Keep the three kinds of thing apart
+
+Reports become unreadable by mixing them. Separate, in this order:
+
+1. **What was delivered** — against what was asked.
+2. **What is still open** — one line each, and who it is waiting on.
+3. **What was found along the way** — a finding is not a deliverable. Discovering three problems and
+   fixing one is *one fixed, two open*, not "three addressed".
+
+A mistake you made belongs in the open list if it is unresolved, not only in the narrative. "I broke
+the build configuration and two commits never ran" means the work is **unverified**, which means it
+is **not done** — regardless of how sound the rest is.
+
 ## The other half of the bargain
 
 Autonomy is bought with a written record, not with trust. Every decision taken without asking goes
