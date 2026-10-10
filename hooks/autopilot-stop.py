@@ -9,7 +9,7 @@ developer has to type "continue" for work they already approved.
 
 ── When it does anything at all ─────────────────────────────────────────────
 
-Only while a run exists. No `.claude/efficiency.local.md` in the project means
+Only while a run exists. No `.efficiency/run.md` in the project means
 this exits 0 in silence and Claude Code behaves exactly as it would without the
 plugin. There is no switch to forget: the run file *is* the switch, which is the
 activation pattern Claude Code documents for conditional hooks.
@@ -54,8 +54,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SPEND = os.path.join(HERE, "lib", "spend.py")
 COSTS = os.path.join(HERE, "lib", "model-costs.json")
 
-RUN_FILE = os.path.join(".claude", "efficiency.local.md")
-POLICY_FILE = os.path.join(".claude", "efficiency.md")
+# The run state lives OUTSIDE .claude/ deliberately. Claude Code refuses writes
+# into .claude/ under acceptEdits — measured: an identical write one directory up
+# succeeds — and project permission rules do not override it. With the run file
+# in there the autopilot could never arm itself, which is the whole mechanism.
+RUN_FILE = os.path.join(".efficiency", "run.md")
 
 # The hook's own state. Deliberately NOT the run file: a model told to update
 # `current_task` rewrote that frontmatter and dropped every key it did not
@@ -67,7 +70,7 @@ POLICY_FILE = os.path.join(".claude", "efficiency.md")
 # the charter forbids touching it. That is not a security boundary — anything
 # with a shell can delete it — but it turns "erased while editing" into a
 # deliberate, named act that shows up in the transcript.
-STATE_FILE = os.path.join(".claude", ".efficiency-autopilot.json")
+STATE_FILE = os.path.join(".efficiency", "autopilot.json")
 
 GATE_TIMEOUT = 900          # seconds; a test suite is allowed to be slow
 GATE_OUTPUT_CHARS = 4000    # what goes back to the model on a red gate
@@ -327,7 +330,7 @@ def main():
     # Confinement: the run file must really live inside this project, not be a
     # link pointing out of it. A hook that writes outside the project it was
     # invoked for is the one failure worth being paranoid about.
-    if os.path.dirname(os.path.realpath(run_path)) != os.path.join(project, ".claude"):
+    if os.path.dirname(os.path.realpath(run_path)) != os.path.join(project, ".efficiency"):
         allow_with_note("efficiency autopilot: %s resolves outside the project, "
                         "standing aside." % RUN_FILE)
 

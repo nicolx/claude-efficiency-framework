@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""session-start.py — carry the autonomy charter into projects that adopted the framework.
+"""session-start.py — carry the charter AND the project's policy into every session.
 
 A plugin has no CLAUDE.md and no `instructions` field, so a SessionStart hook is
 the only way to ship always-on guidance. That makes restraint part of the design:
@@ -7,17 +7,29 @@ this fires in every session of every project where the plugin is enabled, and
 whatever it prints is paid for on every one of them.
 
 So it prints nothing unless the project actually opted in, which it signals by
-having a policy at .claude/efficiency.md. A project that has never run
-/efficiency:init sees no charter and pays no tokens for one.
+having a policy at .efficiency/policy.md. A project that has never run
+/efficiency:init sees nothing and pays no tokens for it.
 
-Keeping the charter here rather than copying it into each project's CLAUDE.md is
-the point of shipping as a plugin: it stays versioned with the code that enforces
-it, and a release updates every consumer at once instead of leaving a stale copy
-in each of them.
+Two documents go in, and the second was missing until 0.4.0:
+
+  * the charter — the behavioural contract, versioned with the plugin;
+  * the project's own policy — its criticality tiers, its routing table, its
+    stop_for list and its declared defaults.
+
+The charter without the policy was a measurable hole. Asked which paths this
+project declares critical, a session answered "NOT IN MY INSTRUCTIONS": the
+charter kept pointing at a file nobody had told the model to read. The declared
+defaults are, by the design's own argument, the largest source of avoidable
+interruptions — and they were reaching the model only inside /efficiency:plan-run,
+which reads the file explicitly.
+
+Comments are stripped from the policy's frontmatter before injection. The shipped
+template teaches through its comments, which is right on disk and pure waste in a
+context window paid for at every session of every adopting project.
 
 Never fatal: on any failure it prints nothing and exits 0. A session that starts
-without the charter is worse than one that starts with it, but a session that
-does not start at all is worse than both.
+without this is worse than one that starts with it; a session that does not start
+at all is worse than both.
 """
 
 import json
@@ -27,8 +39,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHARTER = os.path.join(os.path.dirname(HERE), "AUTONOMY-CHARTER.md")
 
-POLICY = os.path.join(".claude", "efficiency.md")
-RUN = os.path.join(".claude", "efficiency.local.md")
+POLICY = os.path.join(".efficiency", "policy.md")
+RUN = os.path.join(".efficiency", "run.md")
 
 
 def frontmatter_value(path, key):
@@ -45,6 +57,32 @@ def frontmatter_value(path, key):
     except (OSError, IndexError):
         return None
     return None
+
+
+def strip_comments(text):
+    """Drop whole-line `#` comments from the policy's YAML frontmatter.
+
+    Only the frontmatter: the markdown body holds the declared defaults, where a
+    line starting with `#` is a heading and load-bearing. An inline `# ...` after
+    a value is left alone too — quoting rules make stripping it unsafe for the
+    sake of a few characters.
+    """
+    out, in_front, seen_fence = [], False, False
+    for line in text.split("\n"):
+        if line.strip() == "---" and not seen_fence:
+            in_front, seen_fence = True, True
+            out.append(line)
+            continue
+        if in_front and line.strip() == "---":
+            in_front = False
+            out.append(line)
+            continue
+        if in_front:
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def main():
@@ -65,19 +103,31 @@ def main():
     except OSError:
         return 0
 
+    # The policy is the project's own file, so a failure to read it must not cost
+    # the charter as well — ship what can be shipped.
+    try:
+        policy = strip_comments(open(os.path.join(project, POLICY), errors="replace").read())
+        text += ("\n\n---\n\n# This project's efficiency policy\n\n"
+                 "From `.efficiency/policy.md`, with frontmatter comments stripped. These are the "
+                 "project's own declarations: its criticality tiers, its routing table, the only "
+                 "reasons it accepts for stopping, and the defaults that answer questions you would "
+                 "otherwise have to ask.\n\n" + policy)
+    except OSError:
+        pass
+
     run_path = os.path.join(project, RUN)
     if os.path.exists(run_path):
         status = (frontmatter_value(run_path, "status") or "").upper()
         task = frontmatter_value(run_path, "current_task") or "unknown"
         if status == "ACTIVE":
             text += ("\n\n## A run is active right now\n\n"
-                     "`.claude/efficiency.local.md` holds an approved run, currently on **%s**. "
+                     "`.efficiency/run.md` holds an approved run, currently on **%s**. "
                      "The autopilot will refuse to end the turn while tasks remain open and the "
                      "gate is green, so keep working through the list.\n" % task)
         elif status == "BLOCKED":
             reason = frontmatter_value(run_path, "blocked_reason") or "no reason recorded"
             text += ("\n\n## A run is BLOCKED and needs the developer\n\n"
-                     "`.claude/efficiency.local.md` stopped on its own: %s\n\n"
+                     "`.efficiency/run.md` stopped on its own: %s\n\n"
                      "Do not resume it silently — this is one of the interruptions the charter "
                      "says is genuinely theirs.\n" % reason)
 

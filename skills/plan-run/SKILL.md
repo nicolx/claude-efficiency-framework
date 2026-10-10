@@ -28,7 +28,7 @@ verified together with the next one should be one task.
 
 ## 2. Assign the tier — patterns first
 
-Read `tiers` in `.claude/efficiency.md`. For each task, work out which files it
+Read `tiers` in `.efficiency/policy.md`. For each task, work out which files it
 will touch:
 
 - **A declared pattern matches** → that tier. No judgement, no discussion.
@@ -58,7 +58,7 @@ take the acceptance criteria from its plan.
 
 ## 4. Compute the ceilings
 
-From `budget` in `.claude/efficiency.md`:
+From `budget` in `.efficiency/policy.md`:
 
 - `continuations_max` — the run's budget for automatic restarts.
 - `gate_retries_max` — repair attempts on the same red gate.
@@ -82,7 +82,7 @@ decision will be written to the run log.
 
 ## 6. Write the run file
 
-Write `.claude/efficiency.local.md`:
+Write `.efficiency/run.md`:
 
 ```markdown
 ---
@@ -120,7 +120,7 @@ Two rules about this file:
   on: the hook does nothing while it is absent. Writing it early arms an
   unapproved run.
 - **The counters in the frontmatter are a mirror, not the source.** The hook keeps
-  its own copy in `.claude/.efficiency-autopilot.json`, captures the ceilings there
+  its own copy in `.efficiency/autopilot.json`, captures the ceilings there
   on first sight of the run, and reads only from there. Editing the frontmatter to
   buy more continuations or a bigger ceiling changes nothing — and the run file's
   `status` cannot resume a run a guard stopped either. The legitimate way to start

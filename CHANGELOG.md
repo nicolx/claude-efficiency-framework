@@ -10,6 +10,65 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.4.0] — 2026-10-10
+
+The release that found out why nothing ever finished.
+
+### Fixed — the defect under the other two
+
+**Claude Code refuses to write into `.claude/`.** Measured under `acceptEdits`: editing an existing
+file there is denied, creating one is denied, and it is denied through `Write`, `Edit` and `Bash`
+alike. A project `permissions.allow` rule naming the exact path does not lift it. The same writes one
+directory up all succeed.
+
+Both of this framework's live files were in there. Every one of them is a file the *model* must
+write — ticking a task closed, advancing to the next, appending to the run log, adding a declared
+default it had to invent. None of it could happen, and arming the autopilot could not happen at all,
+since arming means creating the run file.
+
+That had already been diagnosed twice as something else: as a block reason missing its instructions
+(0.2.0), and as a model tidying away keys it did not recognise (0.3.0, retracted in 0.3.1). Both
+plausible, both wrong, and both shipped.
+
+### Breaking
+
+Everything the framework writes moved out of `.claude/`:
+
+| Was | Is |
+|---|---|
+| `.claude/efficiency.md` | `.efficiency/policy.md` (committed) |
+| `.claude/efficiency.local.md` | `.efficiency/run.md` (gitignored) |
+| `.claude/.efficiency-autopilot.json` | `.efficiency/autopilot.json` (gitignored) |
+
+An existing adopter moves the policy and updates `.gitignore`; `/efficiency:init` does both.
+
+### Added
+
+- **The project's own policy is now injected into every session**, alongside the charter. It was
+  missing, and measurably so: asked which paths this project declares critical, a session answered
+  *"NOT IN MY INSTRUCTIONS"*. The charter had been pointing at a file nobody told the model to read,
+  which left the declared defaults — the design's own largest lever — reaching the model only inside
+  `/efficiency:plan-run`. Frontmatter comments are stripped first; the shipped template teaches
+  through its comments, which is right on disk and waste in a context window paid for every session.
+- **`efficiency:autopilot`** — arms a run from a plain instruction to keep going, in any words and
+  any language. The commands remain for work worth planning deliberately.
+- **A `UserPromptSubmit` reminder**, one line, only in adopting projects and only when no run is
+  armed. The charter already said to arm, and a session could recite the instruction and name the
+  skill — then went straight to the work. Knowing is not doing when the instruction was read many
+  turns earlier, so the reminder lands with the instruction instead.
+- Seven selftest cases for `SessionStart`, which had none. **41 checks, 0 failed.**
+
+### Removed
+
+- `POLICY_FILE` in `autopilot-stop.py`, defined and never used.
+
+### Verified end to end
+
+A plain Italian instruction — *"Sono quattro. Procedi fino a completarli tutti, non fermarti a
+chiedermi conferma"* — armed the autopilot, drove four tasks, closed every one and finished `DONE`.
+**The first complete run in this project's history**, and nothing about the run machinery had
+changed: it had simply never been able to write to its own files.
+
 ## [0.3.2] — 2026-10-10
 
 Re-measured everything against Claude Code **2.1.289** (the findings were taken on 2.1.261). This is

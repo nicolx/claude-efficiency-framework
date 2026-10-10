@@ -124,8 +124,18 @@ a test result.
 There is otherwise no install script, no copied command files to keep in step, and no version
 marker.
 
-**The plugin is inert in any project without `.claude/efficiency.md`.** Nothing fires, nothing is
+**Everything this framework writes lives in `.efficiency/` at the project root** — the policy
+(committed), the run, and the hook's counters (both gitignored). Not in `.claude/`: Claude Code
+refuses writes there, across every tool and regardless of permission rules, so files the model has
+to update cannot live in it. That one fact is why the autopilot can arm itself at all.
+
+**The plugin is inert in any project without `.efficiency/policy.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.
+
+**In a project that has adopted it, every session is handed two things**: the autonomy charter, and
+the project's own policy — its tiers, its routing table, its `stop_for` list and its declared
+defaults. About 2,000 tokens, injected by a `SessionStart` hook, with nothing to `@`-include and no
+copy in your `CLAUDE.md` to keep in step.
 
 ## Using it
 
@@ -136,6 +146,19 @@ injected, nothing costs a token. Adoption is a file, not a switch.
 | Execute it | `/efficiency:run` | per piece of work |
 | Read what happened | `/efficiency:run-report` | after |
 | Parallelise independent work | `/efficiency:fanout` | only when you ask |
+
+### You do not have to use the commands
+
+Telling Claude to carry work through to the end — *"keep going until it's done"*, *"don't check in
+with me"*, in any words and any language — arms the same machinery. The charter loaded into every
+session treats that as the approval it is, and `efficiency:autopilot` does the arming.
+
+This matters more than it sounds. The `Stop` hook is the part that actually removes the
+interruption, and it only engages while a run file exists. Without this path you say "carry on until
+it's finished", the model agrees, does one task, and the turn ends anyway — the intent was real and
+nothing was listening.
+
+The commands remain for work worth planning deliberately. Both paths get the same guards.
 
 ### The three things you have to supply
 
@@ -187,7 +210,7 @@ this order:
 
 If spend cannot be measured, the run **stops**. An unmeasured ceiling is not a ceiling.
 
-**Counters and ceilings live in a file no skill mentions** — `.claude/.efficiency-autopilot.json` —
+**Counters and ceilings live in a file no skill mentions** — `.efficiency/autopilot.json` —
 and the hook reads only from there. Editing the run file to raise a budget changes nothing, and
 setting `status` back to `ACTIVE` does not resume a run a guard stopped. The legitimate way to start
 over is to change the task list, which is what re-planning already does.

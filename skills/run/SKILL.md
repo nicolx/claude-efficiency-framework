@@ -5,7 +5,7 @@ description: Start or resume an approved run — execute the task list to the en
 
 # run
 
-Execute the approved run in `.claude/efficiency.local.md` to the end.
+Execute the approved run in `.efficiency/run.md` to the end.
 
 The autopilot hook keeps the turn from ending while tasks remain open, so your
 job is not to remember to continue — it is to do each task properly and leave
@@ -13,7 +13,7 @@ the state honest.
 
 ## Before starting
 
-**Refuse to start without a gate.** If `gate` in `.claude/efficiency.md` is
+**Refuse to start without a gate.** If `gate` in `.efficiency/policy.md` is
 empty, stop and say so: autonomy without an executable oracle is unsupervised
 drift, and this is the one refusal the framework makes on purpose.
 
@@ -21,7 +21,7 @@ drift, and this is the one refusal the framework makes on purpose.
 `blocked_reason` and what you propose. Setting `status` back to `ACTIVE` does
 nothing — the hook keeps the verdict in its own state and will stop the run
 again. Resuming is either a re-plan of the task list, or the developer deleting
-`.claude/.efficiency-autopilot.json` themselves. Both are deliberate, which is
+`.efficiency/autopilot.json` themselves. Both are deliberate, which is
 the point.
 
 **If there is no run file**, say so and point at `/efficiency:plan-run`. Do not
@@ -75,7 +75,7 @@ unobserved.
 Also append, as you go:
 
 - **a proposed default**, whenever you had to decide something
-  `.claude/efficiency.md` does not cover. The question you just answered is a
+  `.efficiency/policy.md` does not cover. The question you just answered is a
   default nobody wrote down; offer it so it never costs anything again.
 - **a proposed tier pattern**, whenever you classified a task by judgement.
 

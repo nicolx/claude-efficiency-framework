@@ -194,7 +194,49 @@ add a marketplace for you would be a repository that runs arbitrary hooks the mo
 Verified afterwards: with `enabledPlugins` committed and the marketplace known, a print-mode session
 in that project listed all eight components as `efficiency:*`.
 
-## 9. Refreshing a marketplace does not update an installed plugin
+## 9. Claude Code refuses to write into `.claude/`
+
+The finding that decided this framework's layout, and it was invisible for three releases.
+
+Measured on 2.1.289 under `--permission-mode acceptEdits`, four writes in one session:
+
+| Write | Result |
+|---|---|
+| Edit an existing file **inside** `.claude/` | **denied** |
+| Create a new file **inside** `.claude/` | **denied** |
+| Edit an existing file one directory up | succeeded |
+| Create a new file one directory up | succeeded |
+
+Denied across tools: `Write`, `Edit` and `Bash` alike. Project `permissions.allow` rules naming the
+exact path did not lift it — `Write(.claude/…)`, `Edit(.claude/…)` and an absolute-path form were all
+tried. A session explained the refusal in its own words: *"denied as a sensitive file"*.
+
+**Why it mattered here.** This framework kept its run state at `.claude/efficiency.local.md` and its
+policy at `.claude/efficiency.md`. Both are files the *model* is expected to write: ticking a task
+closed, advancing to the next one, appending to the run log, and adding a declared default it had to
+invent. None of that could happen. The autopilot could not even arm itself, because arming means
+creating the run file.
+
+That had been diagnosed twice as something else — once as a block reason missing its instructions,
+once as a model tidying away keys it did not recognise. Both plausible, both wrong.
+
+Everything the model writes now lives in `.efficiency/` at the project root:
+
+```text
+.efficiency/policy.md      committed — tiers, routing, stop_for, declared defaults
+.efficiency/run.md         gitignored — the run, its tasks and its log
+.efficiency/autopilot.json gitignored — the hook's own counters
+```
+
+With that one move, a plain instruction — *"procedi fino a completarli tutti, non fermarti a
+chiedermi conferma"* — armed the autopilot, drove four tasks and finished `DONE`. The first complete
+run in the project's history, and nothing about the mechanism had changed.
+
+**The general lesson:** a tool that writes nothing where you expected it to is not necessarily
+disobeying. Check whether it is allowed to write there at all, before concluding anything about its
+judgement.
+
+## 10. Refreshing a marketplace does not update an installed plugin
 
 The most expensive finding here, because it invalidated three test runs and the conclusions drawn
 from them.

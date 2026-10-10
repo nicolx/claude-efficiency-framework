@@ -22,7 +22,7 @@ Two reasons, and both are about the developer, not the model:
    review capacity is the actual bottleneck. A fan-out without a working gate
    makes supervision *worse*, not better.
 
-So: fan out only when asked, and refuse when `gate` in `.claude/efficiency.md`
+So: fan out only when asked, and refuse when `gate` in `.efficiency/policy.md`
 is empty. Say why rather than just declining.
 
 ## The test that decides whether the work qualifies

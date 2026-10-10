@@ -3,7 +3,7 @@
 Instructions for Claude Code when the task is **developing this plugin**, not using it.
 
 If you are in a project that has *adopted* the framework, this file is not what applies: read
-`.claude/efficiency.md` for the policy and let the `SessionStart` hook supply the charter.
+`.efficiency/policy.md` for the policy and let the `SessionStart` hook supply the charter.
 
 ## What this repo is
 

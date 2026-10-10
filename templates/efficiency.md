@@ -4,7 +4,7 @@
 # session and becomes a property of the project.
 #
 # Written by /efficiency:init, and edited by hand thereafter. The run STATE is a
-# different file (.claude/efficiency.local.md) and is gitignored.
+# different file (.efficiency/run.md) and is gitignored.
 
 # ── The oracle ───────────────────────────────────────────────────────────────
 # The command a developer would run before committing. It is what makes autonomy

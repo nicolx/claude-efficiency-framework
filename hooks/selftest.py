@@ -31,6 +31,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "autopilot-stop.py")
+SESSION_START = os.path.join(HERE, "session-start.py")
 
 FRONT = """\
 status: {status}
@@ -64,7 +65,8 @@ class Project:
                  run_file=True, frontmatter=None):
         self.dir = os.path.realpath(tempfile.mkdtemp(prefix="eff-selftest-"))
         os.makedirs(os.path.join(self.dir, ".claude"))
-        self.run_path = os.path.join(self.dir, ".claude", "efficiency.local.md")
+        os.makedirs(os.path.join(self.dir, ".efficiency"))
+        self.run_path = os.path.join(self.dir, ".efficiency", "run.md")
         self.transcript = None
         if run_file:
             text = frontmatter if frontmatter is not None else (
@@ -74,6 +76,35 @@ class Project:
                     started=started, spend_max=spend_max)
                 + "---\n" + BODY.format(tasks=tasks))
             open(self.run_path, "w").write(text)
+
+    def write_policy(self, text=None):
+        """The project's own policy, which SessionStart injects alongside the charter."""
+        if text is None:
+            text = ("---\n"
+                    "# a teaching comment that costs tokens at every single session\n"
+                    "gate: \"make check\"\n"
+                    "\n"
+                    "tiers:\n"
+                    "  # another comment\n"
+                    "  critical: [\"src/auth/**\"]\n"
+                    "---\n"
+                    "\n"
+                    "# Declared defaults\n"
+                    "\n"
+                    "- prefer extending an existing type over adding a parallel one\n")
+        with open(os.path.join(self.dir, ".efficiency", "policy.md"), "w") as fh:
+            fh.write(text)
+        return self
+
+    def invoke_session_start(self):
+        payload = {"cwd": self.dir, "hook_event_name": "SessionStart"}
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir)
+        done = subprocess.run([sys.executable, SESSION_START], input=json.dumps(payload),
+                              capture_output=True, text=True, env=env, timeout=60)
+        if not done.stdout.strip():
+            return done.returncode, ""
+        out = json.loads(done.stdout.strip().split("\n")[-1])
+        return done.returncode, out.get("hookSpecificOutput", {}).get("additionalContext", "")
 
     def seed_private(self, **values):
         """Set the hook's own state, which no longer lives in the run file.
@@ -97,12 +128,12 @@ class Project:
             "last_blocked_task": "", "blocked": False, "blocked_reason": "",
         }
         state.update(values)
-        with open(os.path.join(self.dir, ".claude", ".efficiency-autopilot.json"), "w") as fh:
+        with open(os.path.join(self.dir, ".efficiency", "autopilot.json"), "w") as fh:
             json.dump(state, fh)
         return self
 
     def private(self):
-        path = os.path.join(self.dir, ".claude", ".efficiency-autopilot.json")
+        path = os.path.join(self.dir, ".efficiency", "autopilot.json")
         try:
             return json.load(open(path))
         except (OSError, ValueError):
@@ -584,7 +615,89 @@ def _():
     return p
 
 
-# ── 7. confinement ───────────────────────────────────────────────────────────
+# ── 7. what reaches a session ────────────────────────────────────────────────
+# The charter was injected from the first release; the policy was not, and that
+# hole was measured rather than reasoned about: asked which paths this project
+# declares critical, a session answered "NOT IN MY INSTRUCTIONS". The charter had
+# been pointing at a file nobody told the model to read.
+
+@case("a project without a policy gets nothing injected at all")
+def _():
+    p = Project(run_file=False)
+    code, text = p.invoke_session_start()
+    check("a project without a policy gets nothing injected at all",
+          code == 0 and text == "", "got %d chars" % len(text))
+    return p
+
+
+@case("an adopting project gets the charter")
+def _():
+    p = Project(run_file=False).write_policy()
+    code, text = p.invoke_session_start()
+    check("an adopting project gets the charter",
+          "autonomy charter" in text.lower(), "got %.60s" % text)
+    return p
+
+
+@case("and its own policy — tiers, gate and declared defaults")
+def _():
+    p = Project(run_file=False).write_policy()
+    code, text = p.invoke_session_start()
+    check("and its own policy — tiers, gate and declared defaults",
+          "src/auth/**" in text and "make check" in text
+          and "prefer extending an existing type" in text,
+          "policy did not arrive: %.80s" % text[-200:])
+    return p
+
+
+@case("frontmatter comments are stripped, body headings survive")
+def _():
+    p = Project(run_file=False).write_policy()
+    code, text = p.invoke_session_start()
+    check("frontmatter comments are stripped, body headings survive",
+          "teaching comment" not in text and "another comment" not in text
+          and "# Declared defaults" in text,
+          "stripping went wrong")
+    return p
+
+
+@case("an unreadable policy still ships the charter")
+def _():
+    p = Project(run_file=False).write_policy()
+    os.chmod(os.path.join(p.dir, ".efficiency", "policy.md"), 0o000)
+    try:
+        code, text = p.invoke_session_start()
+        check("an unreadable policy still ships the charter",
+              code == 0 and "autonomy charter" in text.lower(),
+              "charter lost with the policy")
+    finally:
+        os.chmod(os.path.join(p.dir, ".efficiency", "policy.md"), 0o644)
+    return p
+
+
+@case("an active run is announced, a blocked one hands back to the developer")
+def _():
+    p = Project(tasks="- [ ] T1 open", status="BLOCKED").write_policy()
+    text = p.raw().replace("blocked_reason:", "blocked_reason: it hit its ceiling")
+    open(p.run_path, "w").write(text)
+    _c, out = p.invoke_session_start()
+    check("an active run is announced, a blocked one hands back to the developer",
+          "BLOCKED" in out and "it hit its ceiling" in out,
+          "blocked run not surfaced: %.80s" % out[-160:])
+    return p
+
+
+@case("the charter tells the model to arm on a plain keep-going instruction")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter tells the model to arm on a plain keep-going instruction",
+          "efficiency:autopilot" in text and "is an approval" in text,
+          "the natural-language path is not in the charter")
+    return p
+
+
+# ── 8. confinement ───────────────────────────────────────────────────────────
 
 @case("the run log survives every rewrite of the state")
 def _():
@@ -602,7 +715,7 @@ def _():
 def _():
     p = Project(tasks="- [ ] T1 open")
     outside = os.path.realpath(tempfile.mkdtemp(prefix="eff-outside-"))
-    victim = os.path.join(outside, "efficiency.local.md")
+    victim = os.path.join(outside, "run.md")
     shutil.move(p.run_path, victim)
     os.symlink(victim, p.run_path)
     try:

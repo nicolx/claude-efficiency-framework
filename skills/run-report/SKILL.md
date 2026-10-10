@@ -10,7 +10,7 @@ it.
 
 ## What to gather
 
-**From `.claude/efficiency.local.md`:** the task list and its marks, the log,
+**From `.efficiency/run.md`:** the task list and its marks, the log,
 `status`, `blocked_reason`, the counters, and any proposed policy additions.
 
 **Real spend**, measured from the transcript rather than estimated:
@@ -63,7 +63,7 @@ Show the developer what this run cost per task, and what the ceiling was. Then:
 ## Policy additions
 
 End with the proposed defaults and tier patterns the run accumulated, ready to
-paste into `.claude/efficiency.md`.
+paste into `.efficiency/policy.md`.
 
 Every one of them is an interruption that will not happen again. That is the
 metric this framework is judged on, so it belongs at the end of every report
