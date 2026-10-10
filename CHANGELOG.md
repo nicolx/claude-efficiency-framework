@@ -10,6 +10,44 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.3.2] — 2026-10-10
+
+Re-measured everything against Claude Code **2.1.289** (the findings were taken on 2.1.261). This is
+the discipline this repo asks for — measure, date it, re-run it — exercised for the first time, and
+it paid on the first attempt.
+
+### Changed
+
+- **§ 7 is expired.** A freshly created directory's project settings now fire their hooks normally.
+  `SessionStart`, `Stop` and `UserPromptSubmit` all fired where they were silent a month ago. The
+  record is kept, dated and marked, because it was true when taken.
+- **§ 3 survives unchanged** — 9 invocations in `stall` mode, 6 in `read` with `--max-turns 12`,
+  identical to September. The finding the whole design rests on is intact.
+- **§ 9 corrected.** `plugin list` prints one entry per project install **with no project path**, so
+  two installs of the same plugin look like one plugin reported twice at different versions. Reading
+  the first entry and stopping produced a wrong conclusion here twice, including the claim in 0.3.1
+  that this repo was still on 0.1.0 — it has been on 0.3.0 since the update was run.
+  `~/.claude/plugins/installed_plugins.json` records `projectPath` and is the way to tell them apart.
+
+### Added
+
+- `scripts/probes/settings-trust.sh` — drafted by run three, which then declined to finish the task
+  on the grounds that the finding was unreproducible. The probe works; the premise was wrong, as a
+  table of five measurements in § 7 now records. Its first real run is what caught § 7 expiring.
+
+### Two traps worth naming
+
+- **A hook with no trigger looks exactly like a suppressed hook.** `PreToolUse` appeared not to fire
+  in an untrusted directory; it simply had no tool call to intercept. Given a prompt that runs a
+  command, it fires. Rule out the mundane explanation before recording a platform finding.
+- **A clean zero proves nothing on its own** — it is produced by a suppressed hook, a hook that never
+  triggered, and a broken probe alike. Only one of those is worth writing down.
+
+### Still not validated
+
+The 0.2.0 and 0.3.0 fixes remain unexercised by a real run. The timeline is now pinned: run three
+finished at 15:04 UTC on 2026-09-05 and the upgrade to 0.3.0 landed at 15:05 — one minute later.
+
 ## [0.3.1] — 2026-09-05
 
 ### Fixed

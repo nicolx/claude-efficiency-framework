@@ -11,10 +11,12 @@
 # Costs a few cents of Haiku and a couple of minutes. Writes nothing outside its own
 # temporary directory.
 #
-# Why --settings and not a .claude/settings.json in the temp project: a freshly created
-# directory is not a trusted workspace, and its project settings are silently ignored —
-# hooks never fire and the probe reports a clean zero. That failure looks exactly like
-# "the platform changed". --settings sidesteps trust entirely.
+# Why --settings and not a .claude/settings.json in the temp project: on 2.1.261 a freshly
+# created directory was not a trusted workspace and its project settings were silently
+# ignored — hooks never fired and the probe reported a clean zero, which looks exactly
+# like "the platform changed". That stopped being true in 2.1.289 (see § 7), but passing
+# the config explicitly is kept deliberately: it makes this probe independent of whatever
+# the trust rules happen to be in any given release.
 
 set -uo pipefail
 

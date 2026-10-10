@@ -6,7 +6,11 @@ date, the Claude Code version, and the method, so it can be re-run when a releas
 Re-measure before trusting any of it after a Claude Code upgrade. The probes live in
 `scripts/probes/` and take a couple of minutes and a few cents of Haiku.
 
-Measured: **2026-09-05** · Claude Code **2.1.261** · macOS 23.3.0
+First measured: **2026-09-05** · Claude Code **2.1.261** · macOS 23.3.0
+Re-measured: **2026-10-10** · Claude Code **2.1.289** — § 3 unchanged, § 7 **expired**, § 9 corrected.
+
+The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
+finding had quietly stopped being true, and only running the probe again revealed it.
 
 ---
 
@@ -71,6 +75,9 @@ Read together:
 - Therefore the cap is not a ceiling on autonomy. It is a free **anti-stall guard**, and it fires on
   precisely the case that deserves it: a model looping without doing anything.
 
+**Still true on 2.1.289** (re-measured 2026-10-10): 9 invocations in `stall` mode, 6 in `read` mode
+with `--max-turns 12`. The finding the whole design rests on survived the upgrade unchanged.
+
 **The cap counts blocked turns, not blocks.** With two hooks both blocking on every turn, each was
 invoked **9 times** — the same total as one hook alone. Two hooks blocking together therefore consume
 *one* of the eight occasions, not two. A project's own quality gate and this autopilot can coexist
@@ -127,15 +134,29 @@ Both must be normalised before a price lookup. An unmatched id falls to whatever
 declares — here deliberately the most expensive model, so an unknown id stops a run early rather
 than late, but for a *known* model priced as the fallback that is a tenfold error.
 
-## 7. Project settings are ignored in an untrusted directory
+## 7. Project settings in an untrusted directory — EXPIRED on 2.1.289
 
-Measured while building the probe, and worth knowing before debugging a hook that "does not run".
+> **This no longer reproduces.** On **2.1.289** a freshly created directory's project settings fire
+> their hooks normally. Verified 2026-10-10 with `scripts/probes/settings-trust.sh` and confirmed
+> across four hook events — `SessionStart`, `Stop` and `UserPromptSubmit` all fired where they were
+> silent on 2.1.261.
+>
+> The record below is kept because it was true when measured, and because it is the reason
+> `stop-cap.sh` passes its configuration with `--settings`. That remains good practice — it makes a
+> probe independent of whatever the trust rules happen to be — but it is no longer a necessity.
+>
+> One trap found while confirming this: `PreToolUse` appeared not to fire, which looked like trust
+> gating and was not. It simply had no tool call to intercept. Given a prompt that actually runs a
+> command, it fires. **A hook that never had its trigger is indistinguishable from a hook that was
+> suppressed** — rule out the mundane explanation before recording a platform finding.
 
-A freshly created directory is not a trusted workspace. Its `.claude/settings.json` is **silently
+### What was true on 2.1.261
+
+A freshly created directory was not a trusted workspace. Its `.claude/settings.json` is **silently
 ignored** — no warning, no error, the hook simply never fires and every counter reads zero. The
 failure is indistinguishable from "the platform changed its behaviour", which is the expensive part.
 
-Measured, with an always-blocking `Stop` hook declared in project settings:
+Measured on 2.1.261, with an always-blocking `Stop` hook declared in project settings:
 
 | Where the project lived | Hook invocations |
 |---|---|
@@ -149,12 +170,9 @@ The third row is the one worth knowing: **trust is not inherited from an ancesto
 under a repo you work in every day is as untrusted as one in `/tmp`. And the second row rules out the
 obvious confounder — it is not a variable that fails to expand.
 
-Two consequences:
-
-- Test hooks with `claude --settings <file>`, which bypasses workspace trust, rather than by writing
-  a project settings file into a scratch directory.
-- A consuming project that has never been trusted gets no hooks from its own settings. Confirm the
-  hook actually ran before concluding anything about what it did.
+The consequence that outlived the finding: **confirm a hook actually ran before concluding anything
+about what it did.** A clean zero is produced by a suppressed hook, a hook with no trigger, and a
+broken probe alike, and only one of those is a platform finding.
 
 ## 8. How a plugin actually reaches a project
 
@@ -198,9 +216,31 @@ Two more edges:
 - After a successful update it says *"Restart to apply changes"*, and `claude plugin list` keeps
   reporting the old version until then.
 
-**`claude plugin list` is the only honest answer to "what am I running".** Three consecutive runs of
-this framework executed 0.1.0 while two releases sat in a refreshed catalogue, and the failures those
-runs appeared to demonstrate were attributed to the newer code. Check the installed version before
+### And `plugin list` is harder to read than it looks
+
+It prints **one entry per project install**, and the entries carry no project path:
+
+```text
+  ❯ efficiency@claude-efficiency-framework
+    Version: 0.1.0          <- a throwaway test project, long deleted
+    Scope: project
+  ❯ efficiency@claude-efficiency-framework
+    Version: 0.3.0          <- the repo you are actually standing in
+    Scope: project
+```
+
+Reading the first one and stopping cost a wrong conclusion here, twice. The file that disambiguates
+is `~/.claude/plugins/installed_plugins.json`, which does record `projectPath` per entry:
+
+```bash
+python3 -c "import json;[print(e['version'], e.get('projectPath'))
+  for e in json.load(open('$HOME/.claude/plugins/installed_plugins.json'))['plugins'][
+    '<plugin>@<marketplace>']]"
+```
+
+**Three consecutive runs of this framework executed 0.1.0** while two releases sat in a refreshed
+catalogue, and the failures those runs appeared to demonstrate were attributed to the newer code.
+Check which version a project is actually on — by path, not by the first line of output — before
 believing any test result about a plugin.
 
 ## Re-running these measurements
