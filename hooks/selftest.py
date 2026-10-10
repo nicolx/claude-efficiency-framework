@@ -164,8 +164,8 @@ class Project:
             "continuations_used": 0, "continuations_max": 40,
             "gate_retries": 0, "gate_retries_max": 2, "spend_max": 0,
             "task_key": "T1", "task_started_at": "2000-01-01T00:00:00Z",
-            "same_task_blocks": 0, "open_tasks_seen": -1,
-            "last_blocked_task": "", "blocked": False, "blocked_reason": "",
+            "same_task_blocks": 0, "open_tasks_sig": "",
+            "blocked": False, "blocked_reason": "",
         }
         state.update(values)
         with open(os.path.join(self.dir, ".efficiency", "autopilot.json"), "w") as fh:
@@ -613,17 +613,57 @@ def _():
     return p
 
 
-@case("a run that never advances stops itself")
+def stall_until_stopped(p, limit=12, between=None):
+    """Block `p` until the run stops itself. Returns the block number it fell on.
+
+    The number is the point of the test, not a detail of it: the platform's own
+    anti-stall cap honours 8 blocks before overriding the ninth (§ 3), and this
+    guard is only the one the developer reads if it fires first. `between` runs
+    after each block, for cases about what the model does in the meantime.
+    """
+    for n in range(1, limit + 1):
+        p.invoke()
+        if p.state()["status"] == "BLOCKED":
+            return n
+        if between:
+            between(p)
+    return 0
+
+
+@case("a run that never advances stops itself, two blocks inside the platform cap")
 def _():
     p = Project(tasks="- [ ] T1 open")
-    out = {}
-    for _ in range(7):
-        _c, out = p.invoke()
+    fired = stall_until_stopped(p)
     st = p.state()
-    check("a run that never advances stops itself",
-          st["status"] == "BLOCKED" and "advancing" in st["blocked_reason"]
-          and "decision" not in out,
-          "status=%s reason=%.80s" % (st["status"], st["blocked_reason"]))
+    # 6, and the margin matters as much as the fact: the platform honours 8
+    # blocks without a tool call before overriding the ninth, so this guard
+    # reaching its ceiling at 6 is what puts OUR reason in front of the
+    # developer instead of the platform's silent override. Raise STALL_STOP
+    # past 7 and the run still stops — but nobody is told why.
+    check("a run that never advances stops itself, two blocks inside the platform cap",
+          fired == 6 and "advancing" in st["blocked_reason"],
+          "stopped at block %s, reason=%.80s" % (fired or "never", st["blocked_reason"]))
+    return p
+
+
+@case("alternating current_task cannot keep a stalled run alive")
+def _():
+    # The block reason tells the model to move `current_task` when a task is
+    # done. A model that moves it WITHOUT closing anything — confusion, not
+    # evasion — used to reset this guard on every block, and the run was then
+    # bounded only by continuations_max, forty blocks away. Progress is a task
+    # closing, and nothing else.
+    def flip(p):
+        now = p.state()["current_task"]
+        nxt = "T2" if now == "T1" else "T1"
+        # Read before opening for write: `open(..., "w")` truncates first.
+        text = p.raw().replace("current_task: " + now, "current_task: " + nxt)
+        open(p.run_path, "w").write(text)
+
+    p = Project(tasks="- [ ] T1 open\n- [ ] T2 open")
+    fired = stall_until_stopped(p, between=flip)
+    check("alternating current_task cannot keep a stalled run alive",
+          fired == 6, "stopped at block %s" % (fired or "never"))
     return p
 
 

@@ -32,6 +32,40 @@ people learn to skip. Where `claude` is absent — CI — the comparison is skip
 so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
 under a client that never did.
 
+## [0.18.1] — 2026-10-10
+
+### Fixed — the anti-stall guard hung off a field the model writes
+
+The autopilot stops a run that has stopped advancing. It decided "advancing" from two things: the
+number of open tasks, and `current_task` — which the model writes, and which the block reason
+*explicitly instructs it to write* when a task is done.
+
+So a model that moved `current_task` without closing anything reset the guard on every single block.
+Not evasion, just confusion between two open tasks; the effect is the same either way. Measured at
+12 consecutive blocks with no task closed and no stop, bounded only by `continuations_max` forty
+blocks away. CLAUDE.md rule 3 says nothing the model can edit may extend a run, and this was the
+counter-example.
+
+Progress is now one thing: **the set of open tasks changing**. `current_task` stays in the reason,
+because it is what makes the message readable, and is out of the condition, because it is not a
+signal the model can be trusted to send about itself.
+
+### Measured — which anti-stall guard fires first
+
+Two mechanisms watch the same `Stop` event and neither knows about the other. The platform honours
+8 consecutive blocks without progress and overrides the 9th, silently. This framework's guard stops
+after 5 continuations that closed no task. Only the one that fires first produces a reason anyone
+reads — and until now, which one that was had never been tested.
+
+It is ours, at **block 6**, with two blocks of margin. Measured both ways: `hooks/selftest.py` now
+asserts the block number rather than just the outcome, and the new `scripts/probes/stall-ordering.sh`
+drives the shipped hook through a real Haiku session on a run that cannot be finished, which stopped
+at block 6 with the framework's reason — the same number. Recorded in § 3 of
+`docs/verified-platform-behaviour.md` with both methods.
+
+The margin is the finding: raise `STALL_STOP` past 7 and a stalled run still stops, but the platform
+gets there first and stops it without saying why.
+
 ## [0.18.0] — 2026-10-10
 
 ### Fixed — the cheap model was unpriced, so the cheap model was never cheap

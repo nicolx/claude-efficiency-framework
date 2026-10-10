@@ -96,6 +96,34 @@ limits that matter are our own — the per-task spend ceiling, the gate retry li
 continuation budget. `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` exists but should be left alone: raising it
 only buys more spinning in the one situation where stopping is correct.
 
+### Which anti-stall guard fires first
+
+Both mechanisms watch the same event and neither knows about the other, so only the one that fires
+first produces a reason anybody reads — the platform's override is silent.
+
+| | fires at | the developer is told |
+|---|---|---|
+| this framework's guard 4 (`STALL_STOP = 5`) | **block 6** | the run file's `blocked_reason`, naming the open tasks |
+| the platform's cap | block 9, overriding the 8th block | nothing |
+
+Measured twice, because the two halves cannot be measured the same way. Offline, `hooks/selftest.py`
+drives the hook as a subprocess and asserts the block number rather than just the outcome. Live,
+`scripts/probes/stall-ordering.sh` runs the *shipped* hook against a Haiku session on a run that
+cannot be finished — its one task reads a file that does not exist — and the run stopped at block 6
+with the framework's reason, matching the offline number exactly.
+
+**Two blocks of margin, and they are the whole point.** Raise `STALL_STOP` past 7 and a stalled run
+still stops, but the platform gets there first and stops it without saying why.
+
+**The margin only holds if the counter cannot be reset by the model.** Until 0.18.1 guard 4 also
+required `current_task` to have stayed put — a field the model writes, and which the block reason
+explicitly tells it to write when a task is done. A model moving it *without* closing anything reset
+the guard on every block: measured at 12 blocks and still going, bounded only by `continuations_max`
+at 40. Progress is now a task closing and nothing else.
+
+*Measured 2026-10-10 on Claude Code 2.1.296. Offline half: `python3 hooks/autopilot-stop.py
+--selftest`. Live half: `bash scripts/probes/stall-ordering.sh`.*
+
 ## 4. Blocking contract
 
 Confirmed by the probes: a `Stop` hook blocks by printing to stdout

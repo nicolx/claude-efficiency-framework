@@ -244,8 +244,8 @@ class Private:
 
     KEYS = ("fingerprint", "continuations_used", "continuations_max",
             "gate_retries", "gate_retries_max", "spend_max", "task_key",
-            "task_started_at", "same_task_blocks", "open_tasks_seen",
-            "last_blocked_task", "blocked", "blocked_reason")
+            "task_started_at", "same_task_blocks", "open_tasks_sig",
+            "blocked", "blocked_reason")
 
     def __init__(self, path):
         self.path = path
@@ -397,8 +397,7 @@ def main():
             "task_key": run.get("current_task"),
             "task_started_at": run.get("task_started_at") or iso_now(),
             "same_task_blocks": 0,
-            "open_tasks_seen": -1,
-            "last_blocked_task": "",
+            "open_tasks_sig": "",
             "blocked": False,
             "blocked_reason": "",
         }
@@ -551,27 +550,36 @@ def main():
     # to a task still in progress, and the autopilot will hand it back forever.
     # Measured on this framework's own first run: 12 blocks, one task's work, no
     # box ticked, no log line.
+    #
+    # What counts as advancing is the set of OPEN tasks changing — deliberately
+    # not `current_task`, which the model writes and which the block reason
+    # below explicitly tells it to write. Until 0.18.1 the counter also required
+    # `current_task` to have stayed put, so a model alternating between two open
+    # tasks reset this guard on every single block and the run was bounded only
+    # by continuations_max, forty blocks away. Rule 3: the leash cannot hang off
+    # a field the model holds. Closing a task is the one progress signal it
+    # cannot fake without actually making progress.
     open_now = len(remaining)
+    open_sig = hashlib.sha256(
+        "\n".join(remaining).encode("utf-8", "replace")).hexdigest()
     same = priv.get_int("same_task_blocks", 0)
-    if (priv.get_int("open_tasks_seen", -1) == open_now
-            and priv.get("last_blocked_task") == task):
+    if priv.get("open_tasks_sig") == open_sig:
         same += 1
     else:
         same = 0
     priv.set("same_task_blocks", same)
-    priv.set("open_tasks_seen", open_now)
-    priv.set("last_blocked_task", task)
+    priv.set("open_tasks_sig", open_sig)
     priv.save()
     run.set("same_task_blocks", same)
 
     if same >= STALL_STOP:
         priv.block_run(run,
-                 "the run stopped advancing: %s was handed back %d times in a row and "
-                 "%d task(s) are still open. Either the work is blocked on something "
-                 "undeclared, or finished work is not being closed. Both need a human "
-                 "to look." % (task, same, open_now))
-        allow_with_note("efficiency autopilot: stopped — %s was handed back %d times "
-                        "without the run advancing." % (task, same))
+                 "the run stopped advancing: %d continuation(s) in a row closed no "
+                 "task, and %d task(s) are still open (currently %s). Either the work "
+                 "is blocked on something undeclared, or finished work is not being "
+                 "closed. Both need a human to look." % (same, open_now, task))
+        allow_with_note("efficiency autopilot: stopped — %d continuation(s) without a "
+                        "task closing, on %s." % (same, task))
 
     priv.set("continuations_used", used + 1)
     priv.save()
@@ -597,11 +605,12 @@ def main():
 
     warning = ""
     if same >= STALL_WARN:
-        warning = ("\n\nATTENTION: %s has now been handed back %d times in a row with "
-                   "the same %d task(s) open. If its work is done, what is missing is the "
+        warning = ("\n\nATTENTION: %d continuation(s) in a row have closed no task, with "
+                   "the same %d still open. If %s's work is done, what is missing is the "
                    "`- [x]` and the log line — do that first. If it cannot be finished, "
-                   "say why instead of trying again; this run stops on its own after %d.\n"
-                   % (task, same, open_now, STALL_STOP))
+                   "say why instead of trying again; this run stops on its own after %d. "
+                   "Moving `current_task` is not progress and does not reset this.\n"
+                   % (same, open_now, task, STALL_STOP))
 
     # A ceiling someone deliberately set to zero is honoured, but not hidden. It
     # is a real decision with a real consequence — the run is unbounded in that
