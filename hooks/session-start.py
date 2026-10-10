@@ -42,6 +42,7 @@ CHARTER = os.path.join(os.path.dirname(HERE), "AUTONOMY-CHARTER.md")
 POLICY = os.path.join(".efficiency", "policy.md")
 RUN = os.path.join(".efficiency", "run.md")
 BACKLOG = os.path.join(".efficiency", "backlog.md")
+TOOLS = os.path.join(".efficiency", "tools.md")
 
 
 def frontmatter_value(path, key):
@@ -109,6 +110,31 @@ def open_backlog(path):
     return len(items), items
 
 
+def available_tools(path):
+    """The `name — purpose` half of each available tool, versions dropped.
+
+    Only the "Available" section, and only up to "Not installed": what is absent
+    is worth knowing when something needs it, not worth paying for at the start
+    of every session. Versions are dropped for the same reason — they are in the
+    file when anyone wants them.
+    """
+    lines, inside = [], False
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                if line.startswith("## Available"):
+                    inside = True
+                    continue
+                if line.startswith("## "):
+                    inside = False
+                    continue
+                if inside and line.startswith("- `"):
+                    lines.append(line.rstrip().split(" · ")[0])
+    except OSError:
+        return []
+    return lines
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -154,6 +180,16 @@ def main():
                 "Do not start on any of it unless they ask: these were set aside on purpose, and "
                 "picking one up uninvited is the scope creep the deferral existed to prevent.\n\n"
                 "---\n\n" % (count, shown, more)) + text
+
+    tools = available_tools(os.path.join(project, TOOLS))
+    if tools:
+        text += ("\n\n---\n\n# Operational tools already on this machine\n\n"
+                 "From `.efficiency/tools.md`. **Use these instead of writing a script to do the "
+                 "same thing** — that is what they are listed for, and the saving is large: one "
+                 "command where a reimplementation costs thousands of tokens and gets the edge "
+                 "cases wrong.\n\n" + "\n".join(tools) +
+                 "\n\nA tool not listed here is not installed. If you need one, name it and offer "
+                 "to install it once, rather than working around its absence.\n")
 
     run_path = os.path.join(project, RUN)
     if os.path.exists(run_path):

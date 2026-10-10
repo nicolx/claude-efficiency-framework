@@ -77,6 +77,18 @@ class Project:
                 + "---\n" + BODY.format(tasks=tasks))
             open(self.run_path, "w").write(text)
 
+    def write_tools(self, text=None):
+        if text is None:
+            text = ("# Operational tools on this machine\n\n"
+                    "## Available — use these instead of writing a script\n\n"
+                    "- `pandoc` — convert between document formats · pandoc 3.1.2\n"
+                    "- `jq` — query and transform JSON · jq-1.7\n\n"
+                    "## Not installed\n\n"
+                    "- `ffmpeg` — convert, trim and inspect audio and video\n")
+        with open(os.path.join(self.dir, ".efficiency", "tools.md"), "w") as fh:
+            fh.write(text)
+        return self
+
     def write_backlog(self, text):
         with open(os.path.join(self.dir, ".efficiency", "backlog.md"), "w") as fh:
             fh.write(text)
@@ -196,6 +208,16 @@ class Project:
 
     def close(self):
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def flat(text):
+    """Collapse whitespace, so a prose assertion survives a reflow.
+
+    Shipped documents are wrapped at 100 columns, and a sentence that moves
+    across the wrap breaks a literal `in` check while nothing about the content
+    changed. Twice now. Assert on meaning, not on line width.
+    """
+    return " ".join(text.split())
 
 
 RESULTS = []
@@ -744,7 +766,7 @@ def _():
         "# Backlog\n\n## Open\n\n- [ ] something deferred\n")
     _c, text = p.invoke_session_start()
     check("the model is told to mention the backlog but not to start on it",
-          "in your first reply" in text and "unless they ask" in text,
+          "in your first reply" in flat(text) and "unless they ask" in flat(text),
           "the surfacing instruction is incomplete")
     return p
 
@@ -754,7 +776,7 @@ def _():
     p = Project(run_file=False).write_policy()
     _c, text = p.invoke_session_start()
     check("the charter draws the boundary at done, and names the backlog",
-          "Finishing is a boundary" in text and ".efficiency/backlog.md" in text
+          "Finishing is a boundary" in flat(text) and ".efficiency/backlog.md" in text
           and "found while:" in text,
           "the scope rule is not in the charter")
     return p
@@ -765,7 +787,7 @@ def _():
     p = Project(run_file=False).write_policy()
     _c, text = p.invoke_session_start()
     check("the charter defines done, and says unverified is not done",
-          "Unverified is not done" in text and "the gate is green, and you ran it" in text,
+          "Unverified is not done" in flat(text) and "the gate is green, and you ran it" in flat(text),
           "the done-rule is not in the charter")
     return p
 
@@ -778,7 +800,7 @@ def _():
     p = Project(run_file=False).write_policy()
     _c, text = p.invoke_session_start()
     check("the done-rule refuses the small-change exception",
-          "no exception for a small change" in text and "costs seconds" in text,
+          "no exception for a small change" in flat(text) and "costs seconds" in flat(text),
           "the exception is not closed off")
     return p
 
@@ -789,7 +811,7 @@ def _():
     _c, text = p.invoke_session_start()
     check("the charter demands a verdict on the first line",
           "**DONE**" in text and "**NOT DONE**" in text and "**BLOCKED**" in text
-          and "stops after the first line" in text,
+          and "stops after the first line" in flat(text),
           "the verdict contract is not in the charter")
     return p
 
@@ -802,6 +824,71 @@ def _():
     check("a completed run is told to report with a verdict",
           p.state()["status"] == "DONE" and "NOT DONE" in msg and "verdict" in msg,
           "DONE message: %.90s" % msg)
+    return p
+
+
+@case("no inventory: no tool section is injected")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("no inventory: no tool section is injected",
+          "Operational tools" not in text, "announced tools with no inventory")
+    return p
+
+
+@case("available tools are injected, with their purpose")
+def _():
+    p = Project(run_file=False).write_policy().write_tools()
+    _c, text = p.invoke_session_start()
+    check("available tools are injected, with their purpose",
+          "`pandoc` — convert between document formats" in text and "`jq`" in text,
+          "the inventory did not arrive")
+    return p
+
+
+@case("versions and not-installed tools are left out of the injection")
+def _():
+    # Both belong in the file and neither is worth paying for at the start of
+    # every session: a version matters when something misbehaves, and an absence
+    # matters when something needs it.
+    p = Project(run_file=False).write_policy().write_tools()
+    _c, text = p.invoke_session_start()
+    section = text[text.find("# Operational tools"):]
+    check("versions and not-installed tools are left out of the injection",
+          "pandoc 3.1.2" not in section and "ffmpeg" not in section,
+          "section carried versions or absences")
+    return p
+
+
+@case("the charter says to reach for the tool before writing the script")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter says to reach for the tool before writing the script",
+          "before writing code to do something" in flat(text).lower()
+          and "offer to install it once" in flat(text),
+          "the tool-first rule is not in the charter")
+    return p
+
+
+@case("the charter forbids updating a tool mid-task")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter forbids updating a tool mid-task",
+          "Never update in the middle of a task" in flat(text)
+          and "once per tool per session" in flat(text),
+          "the update rule is missing or unscoped")
+    return p
+
+
+@case("the charter warns that a tool missing from CI bites later")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter warns that a tool missing from CI bites later",
+          "absent from CI is a difference that bites later" in flat(text),
+          "the CI-parity warning is missing")
     return p
 
 

@@ -10,6 +10,52 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.7.0] — 2026-10-10
+
+### Added — use the tool, don't rebuild it
+
+The expensive failure is not a missing tool, it is a **present tool nobody knew about**. This machine
+has `pdftotext`, `sqlite3`, `gh`, `glab` and `docker`, and no session knew. Asked to pull text from a
+PDF, a session that does not know `pdftotext` is there writes Python with pypdf, fights the
+encodings, and spends thousands of tokens on what one command does in fifty.
+
+- **`scripts/detect-tools.sh`** — writes `.efficiency/tools.md`: which of 25 operational CLIs are
+  present, with what each is for. Document conversion, PDF, CSV, media, search, platform. No network,
+  installs nothing, only looks. **Gitignored**, because it describes a machine and not a project.
+- **The inventory is injected into every session**, purposes kept and versions dropped — a version
+  matters when something misbehaves, and it is in the file when anyone wants it.
+- **A charter rule**: check for a tool before writing code to do something operational. When one is
+  genuinely absent, name it and offer to install it **once**, saying whether it will be needed again
+  and whether CI needs it too — *a tool present here and absent from CI is a difference that bites
+  later*. Re-run the detection after any install, or the next session goes back to writing the
+  script.
+- **Staleness, scoped so it does not become its own waste**: check at most once per tool per session
+  and only for a tool about to be leaned on, never before every `jq`. And **never update mid-task** —
+  a version change alters behaviour under work already in progress, turning a green task into a
+  puzzle. Finish first, then offer.
+
+### What was deliberately not built
+
+A prompt at install time asking whether to install office tooling. At setup you do not know what the
+project will need, so you would be guessing — and the framework's first act would be asking for a
+permission nothing needs yet, which is exactly the interruption without added value this project
+exists to remove. The offer belongs at the moment of need, where it has a visible cost and benefit.
+
+### Fixed
+
+- Version detection rejects error output. `pdftotext` treats `--version` as a filename and answers
+  `I/O Error: Couldn't open file '--version'`; `unzip` answers a flag warning. Both were being
+  printed into the inventory — noise in the one file whose job is to be believed. It now tries
+  `--version`, `-version`, `-V`, `-v` and discards anything that reads as a complaint.
+- Prose assertions in the selftest normalise whitespace. A sentence crossing the 100-column wrap
+  broke a literal check twice while nothing about the content changed; assertions test meaning now,
+  not line width.
+
+### Verified
+
+Given a PDF and no instruction about how, a session ran `pdftotext` and wrote **no script at all** —
+and volunteered that the file was malformed, which it was. **57 checks, 0 failed.**
+
 ## [0.6.0] — 2026-10-10
 
 ### Added — the boundary at "done", and somewhere for the rest to go

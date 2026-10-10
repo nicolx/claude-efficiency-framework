@@ -76,12 +76,24 @@ invasive write the framework makes, so treat it that way:
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
+**`.efficiency/tools.md`** — run
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-tools.sh" .` to write it. It lists the
+operational tools this machine already has, and every session afterwards is told
+to use them instead of writing a script. **Gitignored**: it describes a machine,
+not a project, and a shared list describing someone else's laptop is worse than
+no list.
+
+Mention what it found. If something obviously useful for this project's stack is
+missing — a document pipeline without `pandoc`, media work without `ffmpeg` —
+say so once and offer to install it. Do not install anything unasked.
+
 **`.efficiency/backlog.md`** — from
 `${CLAUDE_PLUGIN_ROOT}/templates/backlog.md`, if it does not already exist. It is
 **committed**: a backlog is shared knowledge, and it outlives the session that
 filled it.
 
-**`.gitignore`** — add `.efficiency/run.md` and `.efficiency/autopilot.json`.
+**`.gitignore`** — add `.efficiency/run.md`, `.efficiency/autopilot.json` and
+`.efficiency/tools.md`.
 The policy travels with the repo; the run state and the hook's own counters do
 not.
 

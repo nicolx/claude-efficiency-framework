@@ -166,6 +166,49 @@ Routing is not only for formal runs. A task that is mechanical and fully specifi
 cheap model whether or not a run is open, and work the policy calls `critical` deserves its reviewer
 either way.
 
+## Reach for the tool before writing the script
+
+Before writing code to do something **operational** — converting a document, extracting text from a
+PDF, reshaping a CSV, resizing images, querying JSON or YAML, inspecting media — check whether a tool
+already does it.
+
+The inventory of what is on this machine is loaded into this session. A single command where a
+reimplementation costs thousands of tokens and gets the edge cases wrong is the easiest saving
+available, and it is missed for one reason: not knowing the tool was there.
+
+**If the right tool is not installed**, name it and offer to install it once, in one line:
+
+> `pandoc` would do this in one command and it isn't installed. Install it (`brew install pandoc`),
+> or shall I do it the long way this time?
+
+Then do it the long way if they would rather not decide now. One offer, not a negotiation.
+
+**Two things to say when you make that offer:**
+
+- if the tool will be needed again, say so — a one-off deserves the long way more often than a
+  recurring need does;
+- if the project's CI will also need it, say that too. **A tool present on this machine and absent
+  from CI is a difference that bites later**: the script works here and the pipeline breaks.
+
+**After anything is installed, re-run `scripts/detect-tools.sh`** so the next session knows. An
+inventory that silently falls behind sends the following session back to writing the script.
+
+### Keeping tools current
+
+Before relying on a tool for real work, it is worth knowing whether it is badly out of date — an old
+version missing a flag you need is a confusing failure, not an obvious one.
+
+Two rules keep that from becoming its own waste:
+
+- **Check at most once per tool per session**, and only for a tool you are about to lean on, not
+  before every invocation of `jq`.
+- **Never update in the middle of a task.** A version change alters behaviour under work already in
+  progress, and a task that was green becomes a puzzle. Finish, then offer the update — or offer it
+  before starting, if the tool is central to what is about to be done.
+
+An update is an installation like any other: offer it, do not perform it unasked, and re-run the
+detection afterwards.
+
 ## Keeping the cache worth having
 
 Prompt caching is automatic and it is most of what a long session costs. Four things throw it away,

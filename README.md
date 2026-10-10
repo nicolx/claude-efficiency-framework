@@ -96,6 +96,26 @@ because it is in front of you is the same scope creep, one session later.
 Each entry carries a `found while:` clause, because a fresh session has none of the context that
 made the thing obvious — and that is the cheapest way to hand it back.
 
+## Reach for the tool before writing the script
+
+The expensive failure is not a missing tool — it is a **present tool nobody knew about**. Asked to
+pull text out of a PDF, a session that doesn't know `pdftotext` is installed writes Python with
+pypdf, fights the encodings, and spends thousands of tokens on what one command does in fifty.
+
+So `init` runs `scripts/detect-tools.sh`, and every session afterwards is handed the list of
+operational tools this machine actually has — document conversion, PDF, CSV, media, search,
+platform CLIs — with what each is for.
+
+**Gitignored, because it describes a machine and not a project.** A colleague's laptop is a
+different laptop, and a shared list describing someone else's is worse than no list.
+
+When the right tool is genuinely absent, the charter says to name it and offer to install it **once**
+— with two things said out loud: whether it will be needed again, and whether the project's CI needs
+it too. *A tool present on your machine and absent from CI is a difference that bites later.*
+
+Tools are checked for staleness at most once per session, and **never updated mid-task**: a version
+change alters behaviour under work already in progress.
+
 ## The bargain
 
 Autonomy is bought with two things, not one. Both are conditions of use:
@@ -174,10 +194,10 @@ to update cannot live in it. That one fact is why the autopilot can arm itself a
 **The plugin is inert in any project without `.efficiency/policy.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.
 
-**In a project that has adopted it, every session is handed two things**: the autonomy charter, and
-the project's own policy — its tiers, its routing table, its `stop_for` list and its declared
-defaults. About 2,000 tokens, injected by a `SessionStart` hook, with nothing to `@`-include and no
-copy in your `CLAUDE.md` to keep in step.
+**In a project that has adopted it, every session is handed four things** by one `SessionStart`
+hook: any open backlog items, the autonomy charter, the project's own policy — tiers, routing,
+`stop_for`, declared defaults — and the list of operational tools this machine has. Around 3,000
+tokens, with nothing to `@`-include and no copy in your `CLAUDE.md` to keep in step.
 
 ## Using it
 
