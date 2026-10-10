@@ -41,6 +41,7 @@ CHARTER = os.path.join(os.path.dirname(HERE), "AUTONOMY-CHARTER.md")
 
 POLICY = os.path.join(".efficiency", "policy.md")
 RUN = os.path.join(".efficiency", "run.md")
+BACKLOG = os.path.join(".efficiency", "backlog.md")
 
 
 def frontmatter_value(path, key):
@@ -85,6 +86,29 @@ def strip_comments(text):
     return "\n".join(out)
 
 
+def open_backlog(path):
+    """(count, one-line summaries) of unclosed backlog entries.
+
+    Fenced code blocks are skipped. The shipped template documents the entry
+    format with a real-looking example inside a fence, and counting it reported a
+    phantom item on day one — in a file whose only job is to be trusted about how
+    much is outstanding.
+    """
+    items, fenced = [], False
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped.startswith("```"):
+                    fenced = not fenced
+                    continue
+                if not fenced and stripped.startswith("- [ ]"):
+                    items.append(stripped[5:].strip())
+    except OSError:
+        return 0, []
+    return len(items), items
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -114,6 +138,22 @@ def main():
                  "otherwise have to ask.\n\n" + policy)
     except OSError:
         pass
+
+    # The backlog goes FIRST and loudly. Its whole purpose is work deferred to a
+    # fresh session, and a deferral nobody is reminded of is just a deletion with
+    # extra steps. The model is asked to surface it once, briefly, rather than
+    # left to decide whether it is worth mentioning.
+    count, items = open_backlog(os.path.join(project, BACKLOG))
+    if count:
+        shown = "\n".join("  - %s" % i for i in items[:5])
+        more = "\n  …and %d more" % (count - 5) if count > 5 else ""
+        text = ("# ⚠ %d open backlog item(s) in this project\n\n"
+                "From `.efficiency/backlog.md` — work earlier sessions deliberately deferred so it "
+                "could be done with a clear head:\n\n%s%s\n\n"
+                "**Tell the developer this once, in your first reply, in no more than two lines.** "
+                "Do not start on any of it unless they ask: these were set aside on purpose, and "
+                "picking one up uninvited is the scope creep the deferral existed to prevent.\n\n"
+                "---\n\n" % (count, shown, more)) + text
 
     run_path = os.path.join(project, RUN)
     if os.path.exists(run_path):

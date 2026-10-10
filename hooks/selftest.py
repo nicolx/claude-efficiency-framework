@@ -77,6 +77,11 @@ class Project:
                 + "---\n" + BODY.format(tasks=tasks))
             open(self.run_path, "w").write(text)
 
+    def write_backlog(self, text):
+        with open(os.path.join(self.dir, ".efficiency", "backlog.md"), "w") as fh:
+            fh.write(text)
+        return self
+
     def write_policy(self, text=None):
         """The project's own policy, which SessionStart injects alongside the charter."""
         if text is None:
@@ -687,6 +692,74 @@ def _():
     return p
 
 
+@case("no backlog file: nothing is announced")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("no backlog file: nothing is announced",
+          "backlog item" not in text, "announced a backlog that does not exist")
+    return p
+
+
+@case("open backlog items are announced first, before the charter")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(
+        "# Backlog\n\n## Open\n\n- [ ] 2026-10-10 - fix the thing - found while: elsewhere\n")
+    _c, text = p.invoke_session_start()
+    check("open backlog items are announced first, before the charter",
+          text.lstrip().startswith("# \u26a0 1 open backlog item")
+          and "fix the thing" in text,
+          "starts with: %.70s" % text.lstrip())
+    return p
+
+
+@case("a closed entry is not counted as outstanding")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(
+        "# Backlog\n\n## Open\n\n- [ ] one open\n\n## Closed\n\n- [x] 2026-01-01 - done\n")
+    _c, text = p.invoke_session_start()
+    check("a closed entry is not counted as outstanding",
+          "1 open backlog item" in text, "miscounted")
+    return p
+
+
+@case("the format example inside a code fence is not counted")
+def _():
+    # The shipped template documents the entry format with a real-looking line
+    # inside a fence. Counting it reported a phantom item on day one, in the one
+    # file whose job is to be trusted about how much is outstanding.
+    p = Project(run_file=False).write_policy().write_backlog(
+        "# Backlog\n\n```text\n- [ ] 2026-10-10 - EXAMPLE - found while: EXAMPLE\n```\n\n"
+        "## Open\n\n- [ ] the only real one\n")
+    _c, text = p.invoke_session_start()
+    check("the format example inside a code fence is not counted",
+          "1 open backlog item" in text and "EXAMPLE" not in text,
+          "the fenced example leaked in")
+    return p
+
+
+@case("the model is told to mention the backlog but not to start on it")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(
+        "# Backlog\n\n## Open\n\n- [ ] something deferred\n")
+    _c, text = p.invoke_session_start()
+    check("the model is told to mention the backlog but not to start on it",
+          "in your first reply" in text and "unless they ask" in text,
+          "the surfacing instruction is incomplete")
+    return p
+
+
+@case("the charter draws the boundary at done, and names the backlog")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the charter draws the boundary at done, and names the backlog",
+          "Finishing is a boundary" in text and ".efficiency/backlog.md" in text
+          and "found while:" in text,
+          "the scope rule is not in the charter")
+    return p
+
+
 @case("the charter defines done, and says unverified is not done")
 def _():
     p = Project(run_file=False).write_policy()
@@ -694,6 +767,19 @@ def _():
     check("the charter defines done, and says unverified is not done",
           "Unverified is not done" in text and "the gate is green, and you ran it" in text,
           "the done-rule is not in the charter")
+    return p
+
+
+@case("the done-rule refuses the small-change exception")
+def _():
+    # Measured: a session reported DONE while saying it had skipped the gate
+    # because the change was one line. That is exactly the reasonable-sounding
+    # exception that erodes the rule, so the charter now names it.
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start()
+    check("the done-rule refuses the small-change exception",
+          "no exception for a small change" in text and "costs seconds" in text,
+          "the exception is not closed off")
     return p
 
 

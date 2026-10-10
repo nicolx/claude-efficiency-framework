@@ -63,6 +63,10 @@ behind it. If DONE, say the gate was green and every task closed.
 
 **What needs a human**, as a short list of actual decisions, not a summary.
 
+**Findings go to the backlog, not into the next run.** Anything the run noticed
+that was not the work belongs in `.efficiency/backlog.md`, one line with its
+`found while:` clause. Say how many you filed; do not propose starting on them.
+
 **Keep deliverables, open items and findings apart.** A finding is not a
 deliverable: three problems found and one fixed is *one fixed, two open*, never
 "three addressed". A mistake made during the run belongs in the open list while

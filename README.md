@@ -72,6 +72,30 @@ found and one fixed is *one fixed, two open*, never "three addressed".
 This exists because of a real report — dense, accurate, full of genuine findings, and impossible to
 answer *"is this finished?"* from without reading to the end.
 
+## When it's done, it's done — and the rest goes to the backlog
+
+A session that keeps widening becomes one nobody can review. The second thing is always done with
+worse attention than the first: the context is full, the original goal is far behind, and nobody
+decided the new work was worth doing.
+
+So the charter draws a boundary at *finished*, and sorts what you run into:
+
+| What came up | Where it goes |
+|---|---|
+| It **blocks** the task | Now. It was part of the task, you just didn't know yet. |
+| You **broke** something that worked | Now. You caused it. |
+| **Anything else you noticed** | `.efficiency/backlog.md`. Not this session. |
+
+The third row is the one that feels wrong to obey, and it is the one that matters — a clear, real
+improvement spotted mid-task is exactly what quietly doubles a diff nobody agreed to.
+
+**Open items are put in front of you at the start of every session**, by the same hook that carries
+the charter, with instructions to mention them once and **not** to start on them. Picking one up
+because it is in front of you is the same scope creep, one session later.
+
+Each entry carries a `found while:` clause, because a fresh session has none of the context that
+made the thing obvious — and that is the cheapest way to hand it back.
+
 ## The bargain
 
 Autonomy is bought with two things, not one. Both are conditions of use:

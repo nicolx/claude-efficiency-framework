@@ -76,6 +76,11 @@ invasive write the framework makes, so treat it that way:
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
+**`.efficiency/backlog.md`** — from
+`${CLAUDE_PLUGIN_ROOT}/templates/backlog.md`, if it does not already exist. It is
+**committed**: a backlog is shared knowledge, and it outlives the session that
+filled it.
+
 **`.gitignore`** — add `.efficiency/run.md` and `.efficiency/autopilot.json`.
 The policy travels with the repo; the run state and the hook's own counters do
 not.
@@ -101,6 +106,9 @@ Four things, briefly:
   a broken framework rather than an unrestarted session.
 - Verify the plumbing with
   `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py" --selftest`.
+- **Work found along the way goes to `.efficiency/backlog.md`**, not into the
+  session that found it, and open items are surfaced at the start of every
+  session afterwards. Say this: it is the habit that keeps a session reviewable.
 - **They do not have to learn the commands.** Telling Claude to carry work
   through to the end — in any words, in any language — arms the same machinery
   that `/efficiency:plan-run` does. The commands are there for work worth

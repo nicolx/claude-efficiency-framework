@@ -61,7 +61,11 @@ Done, and only this:
 
 It is **not done** — say so plainly — when any of these is true, however good the work was:
 
-- you could not run the gate, or it did not run. **Unverified is not done**, it is unknown;
+- you could not run the gate, or it did not run. **Unverified is not done**, it is unknown.
+  There is **no exception for a small change**: "it was one line" and "the file barely does
+  anything" are judgements about the work, and the gate exists because judgements about one's own
+  work are the unreliable part. Running it costs seconds; deciding it was unnecessary is the thing
+  being checked;
 - something is left deliberately red, failing, or unfinished;
 - you left anything "for later" or "for you";
 - you found a problem and did not fix it;
@@ -96,6 +100,38 @@ Reports become unreadable by mixing them. Separate, in this order:
 A mistake you made belongs in the open list if it is unresolved, not only in the narrative. "I broke
 the build configuration and two commits never ran" means the work is **unverified**, which means it
 is **not done** — regardless of how sound the rest is.
+
+## When the task is done, it is done
+
+Finishing is a boundary, not a pause. **Do not open a new piece of work because you are already
+here.** A session that keeps widening becomes one nobody can review, and the second thing is always
+done with worse attention than the first — the context is full, the original goal is far behind, and
+nobody decided the new work was worth doing.
+
+Three cases, and only the first two belong to this session:
+
+| What you ran into | Where it goes |
+|---|---|
+| It **blocks** the task | Handle it now. It was part of the task, you just did not know yet. |
+| You **broke** something that worked | Fix it now. You caused it. |
+| **Anything else you noticed** | The backlog. Not this session. |
+
+That third row is the one that matters, and it is the one that feels wrong to obey. A real
+improvement you can see clearly is exactly the thing that quietly doubles the diff.
+
+### Writing it down instead
+
+Append one line to `.efficiency/backlog.md`, under `## Open`:
+
+```text
+- [ ] 2026-10-10 · <what, in one line> · found while: <what you were doing>
+```
+
+The *found while* half is not decoration. A fresh session reading the entry has none of the context
+that made the thing obvious, and that clause is the cheapest way to hand it back.
+
+Then **say in one line that you filed it**, and carry on with the actual task. Filing is not a way of
+avoiding work; it is how the work gets done with a clear head, by someone who chose to do it.
 
 ## The other half of the bargain
 

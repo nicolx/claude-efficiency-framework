@@ -10,6 +10,47 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.6.0] — 2026-10-10
+
+### Added — the boundary at "done", and somewhere for the rest to go
+
+Finishing is a boundary, not a pause. A session that keeps widening becomes one nobody can review,
+and the second thing is always done with worse attention than the first: the context is full, the
+original goal is far behind, and nobody decided the new work was worth doing.
+
+- **The charter sorts what comes up.** Blocks the task → now, it was part of it. You broke something
+  → now, you caused it. **Anything else you noticed → the backlog, not this session.** The third row
+  is the one that feels wrong to obey and the one that matters: a clear, real improvement spotted
+  mid-task is exactly what quietly doubles a diff nobody agreed to.
+- **`.efficiency/backlog.md`** — committed, because it is shared knowledge that outlives the session
+  that filled it. Each entry is one line with a `found while:` clause, which is not decoration: a
+  fresh session has none of the context that made the thing obvious, and that half-sentence is the
+  cheapest way to give it back.
+- **Open items are surfaced at the top of every session**, ahead of the charter, by the same hook —
+  with instructions to mention them once, in two lines, and **not** to start on them. A deferral
+  nobody is reminded of is a deletion with extra steps; and picking one up because it is in front of
+  you is the same scope creep, one session later.
+- **`efficiency:backlog`** — file one, review what is outstanding, or pick one up as a new task.
+
+### Fixed
+
+- **The done-rule refuses the small-change exception.** A session reported `DONE` while admitting it
+  had skipped the gate because the change was one line. That is the reasonable-sounding exception
+  that erodes a rule, so the charter names it: judgements about the size of one's own change are the
+  unreliable part, running the gate costs seconds, and deciding it was unnecessary is the thing being
+  checked.
+- **The backlog counter skips fenced code blocks.** The shipped template documents the entry format
+  with a real-looking example inside a fence, and counting it reported a phantom item on day one — in
+  the one file whose job is to be trusted about how much is outstanding.
+
+### Verified
+
+Given a task plus a deliberate nudge toward something else — *"e già che ci sei, nota che
+src/legacy.sh ha un problema di sicurezza"* — a session surfaced the backlog in one line, did the
+actual task, ran the gate, left `legacy.sh` untouched, filed no duplicate, and reported `DONE` with
+the security issue listed as still open in the backlog. It also volunteered that the project's gate
+was weak and therefore proved little. **51 checks, 0 failed.**
+
 ## [0.5.0] — 2026-10-10
 
 ### Added — the question a report must answer
