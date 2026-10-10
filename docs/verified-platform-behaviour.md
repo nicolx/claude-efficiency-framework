@@ -243,7 +243,30 @@ run in the project's history, and nothing about the mechanism had changed.
 disobeying. Check whether it is allowed to write there at all, before concluding anything about its
 judgement.
 
-## 10. Refreshing a marketplace does not update an installed plugin
+## 10. Enabling a plugin takes two halves, and committing one is not enough
+
+Measured by removing each in turn, in real sessions:
+
+| `enabledPlugins` in a settings file | entry in `installed_plugins.json` | plugin loads? |
+|---|---|---|
+| yes | yes | **yes** |
+| yes | no | no |
+| no | yes | no |
+
+The settings file and the registry are both required. Writing `enabledPlugins` by hand — byte-identical
+to what `claude plugin install --scope project` produces — does **not** load the plugin; the install
+command also records an entry in `~/.claude/plugins/installed_plugins.json`, and that entry is what
+makes the difference.
+
+Read as design rather than as a gap, the split is right: a committed setting is the project's
+*intent*, and running the install on each machine is that machine's *consent*. A repository able to
+enable a hook-running plugin on its own would be a repository that runs code the moment it is cloned.
+
+**Consequence for anyone distributing a plugin:** "commit `enabledPlugins` and your team gets it" is
+false. They each run `marketplace add` and `plugin install`. This framework's README claimed the
+easier version until it was measured.
+
+## 11. Refreshing a marketplace does not update an installed plugin
 
 The most expensive finding here, because it invalidated three test runs and the conclusions drawn
 from them.

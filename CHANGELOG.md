@@ -10,6 +10,49 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.10.0] — 2026-10-10
+
+Found by testing the previous release's own feature rather than trusting it.
+
+### Verified — the inert-install detection works
+
+A project left in the pre-0.4.0 state, opened as a real session: the first thing the model read was
+`# ⚠ This project's efficiency framework is INERT after an upgrade`, and it could quote it back. The
+silent failure that cost two misdiagnoses now announces itself.
+
+### Fixed — enabling a plugin takes two halves
+
+While building that test, three sessions failed to load the plugin from a `.claude/settings.json`
+written by hand — byte-identical to what `claude plugin install --scope project` produces. Isolated
+by removing each half in turn:
+
+| `enabledPlugins` | registry entry | loads? |
+|---|---|---|
+| yes | yes | **yes** |
+| yes | no | no |
+| no | yes | no |
+
+**Both are required.** The install command also records an entry in
+`~/.claude/plugins/installed_plugins.json`, and that entry is what makes the difference.
+
+Three things were wrong because of it:
+
+- **The README promised team adoption that does not work.** "Commit `enabledPlugins` and a colleague
+  who clones gets it" is false — they each run `marketplace add` and `plugin install`. Read as design
+  this is right, and the README now says why: the committed setting is the project's *intent*, the
+  local install is that machine's *consent*, and a repository able to enable a hook-running plugin by
+  itself would run code the moment you cloned it.
+- **`check_enabled.py` reported enabled from settings alone**, so the validator would have called a
+  project conformant where the plugin does not load — the exact bug class it exists to catch, inside
+  itself. It now requires both halves and reports each missing one separately, because the fixes
+  differ.
+- **The validator's own tests enabled the plugin by writing settings only**, so every "correct
+  install" case was passing on a false premise. The fixture writes both now, against a registry
+  fixture reached through `EFFICIENCY_REGISTRY` — a test that mutated the machine's real plugin state
+  would be one nobody dares run twice.
+
+**10 validator checks, 59 selftest checks, 0 failed.**
+
 ## [0.9.0] — 2026-10-10
 
 ### Changed — the validator now checks the chain, not the files

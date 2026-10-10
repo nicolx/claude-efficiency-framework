@@ -163,8 +163,17 @@ Then **restart Claude Code** — hooks load at session start.
 | | `--scope user` (default) | `--scope project` |
 |---|---|---|
 | Install | once, ever | once per project |
-| Travels with the repo | no | **yes** — `enabledPlugins` is written into `.claude/settings.json`, which you commit |
-| A colleague who clones | gets nothing | gets it, once they have added the marketplace |
+| Travels with the repo | no | **the intent does** — `enabledPlugins` is written into `.claude/settings.json`, which you commit |
+| A colleague who clones | runs both commands | runs both commands, and the project's choice is already recorded |
+
+**Committing `enabledPlugins` is not enough on its own.** Measured, by removing each half in turn:
+the plugin loads only when a settings file enables it **and** this machine has an install recorded in
+`~/.claude/plugins/installed_plugins.json`. Either alone does nothing.
+
+So a teammate who clones still runs both commands. That is the right design rather than a gap: the
+committed setting is the project's *intent*, and `claude plugin install` on each machine is the
+*consent*. A repository that could enable a hook-running plugin by itself would be a repository that
+runs code the moment you clone it.
 
 **User scope is safer than it sounds, because the plugin is inert without `.efficiency/policy.md`.**
 Nothing fires, nothing is injected, nothing costs a token in a project that has not adopted it. So

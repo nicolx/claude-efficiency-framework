@@ -7,14 +7,24 @@ enabled is a project where nothing happens.
 
 Prints one line: `enabled:<why>` or `disabled:<why>`. Reads only; no network.
 
-Enablement can come from three places, and any one of them is enough:
+Enablement needs BOTH halves, measured by removing each in turn:
 
-  * the project's own `.claude/settings.json` — `enabledPlugins`, committed, which
-    is what `--scope project` writes;
-  * the user's `~/.claude/settings.json` — the default scope, covering every
+  * a settings file saying so — the project's own `.claude/settings.json` (what
+    `--scope project` writes and what you commit), or the user's for every
     project on the machine;
-  * `~/.claude/plugins/installed_plugins.json`, the registry the CLI keeps, whose
-    per-project entries are the only place the installed VERSION is recorded.
+  * a matching entry in `~/.claude/plugins/installed_plugins.json`, the registry
+    the CLI keeps, which also records the installed VERSION.
+
+| settings | registry | loads? |
+|---|---|---|
+| yes | yes | **yes** |
+| yes | no  | no |
+| no  | yes | no |
+
+That is why committing `enabledPlugins` is not enough on its own: a cloned
+repository declares the intent, and `claude plugin install` on each machine is
+the consent. A repository that could enable a hook-running plugin by itself would
+be one that runs code the moment you clone it.
 """
 
 import json
@@ -52,8 +62,13 @@ def main():
     user_key = enabled_in(load(os.path.join(home, ".claude", "settings.json")))
 
     # The registry carries the version, and one entry per project path.
+    # EFFICIENCY_REGISTRY overrides its location so the validator's own tests can
+    # point at a fixture instead of the machine's real registry — a test that
+    # mutated that file would be a test nobody dares run twice.
     version, scope = None, None
-    registry = load(os.path.join(home, ".claude", "plugins", "installed_plugins.json"))
+    registry_path = os.environ.get("EFFICIENCY_REGISTRY") or os.path.join(
+        home, ".claude", "plugins", "installed_plugins.json")
+    registry = load(registry_path)
     for name, entries in (registry.get("plugins") or {}).items():
         if not name.endswith(PLUGIN_KEY_SUFFIX) or not isinstance(entries, list):
             continue
@@ -65,21 +80,22 @@ def main():
                 version, scope = e.get("version"), e.get("scope")
                 break
 
-    detail = []
-    if project_key:
-        detail.append("enabled for this project (committed in .claude/settings.json)")
-    elif user_key:
-        detail.append("enabled for every project on this machine (user scope)")
-    if version:
-        detail.append("installed version %s, scope %s" % (version, scope))
+    declared = project_key or user_key
+    where = ("committed in .claude/settings.json" if project_key
+             else "user scope, every project on this machine")
 
-    if project_key or user_key:
-        print("enabled:" + "; ".join(detail))
+    if declared and version:
+        print("enabled:%s; installed version %s, scope %s" % (where, version, scope))
         return 0
 
-    if version:
-        # Registered but not switched on: the CLI recorded an install and no
-        # settings file enables it. Worth distinguishing — the fix is different.
+    # Each half alone is a different mistake with a different fix, so they are
+    # reported apart rather than as one vague "not enabled".
+    if declared and not version:
+        print("disabled:a settings file enables it (%s) but this machine has no install — "
+              "committed settings declare intent, `claude plugin install` is the consent" % where)
+        return 0
+
+    if version and not declared:
         print("disabled:the CLI has it installed (version %s, scope %s) but no settings file "
               "enables it" % (version, scope))
         return 0

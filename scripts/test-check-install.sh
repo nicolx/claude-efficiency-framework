@@ -17,11 +17,20 @@ VALIDATOR="$HERE/check-install.sh"
 FAILED=0
 RAN=0
 
-# Enablement is read from settings, so a fixture can simulate it without the CLI.
+# Enablement needs BOTH a settings file and a registry entry — measured by
+# removing each in turn. A fixture that writes only settings describes a project
+# where the plugin does not actually load, which is how these tests used to pass
+# on a false premise.
 enable_in() {
     mkdir -p "$1/.claude"
     printf '{"enabledPlugins":{"efficiency@claude-efficiency-framework":true}}' \
         > "$1/.claude/settings.json"
+    REGISTRY="$1/registry.json" PROJECT="$1" python3 - <<'PY'
+import json, os
+json.dump({"version": 2, "plugins": {"efficiency@claude-efficiency-framework": [
+    {"scope": "project", "projectPath": os.path.realpath(os.environ["PROJECT"]),
+     "version": "0.0.0-test"}]}}, open(os.environ["REGISTRY"], "w"))
+PY
 }
 
 new_project() {
@@ -55,7 +64,13 @@ POLICY
 check() {
     local name="$1" want="$2" pattern="$3" dir="$4" out code
     RAN=$((RAN + 1))
-    out=$("$VALIDATOR" "$dir" 2>&1); code=$?
+    # Point the validator at the fixture's registry when it has one, so these
+    # tests never read — or need — the machine's real plugin state.
+    if [ -f "$dir/registry.json" ]; then
+        out=$(EFFICIENCY_REGISTRY="$dir/registry.json" "$VALIDATOR" "$dir" 2>&1); code=$?
+    else
+        out=$(EFFICIENCY_REGISTRY="$dir/absent.json" "$VALIDATOR" "$dir" 2>&1); code=$?
+    fi
     if [ "$code" != "$want" ]; then
         printf '  FAIL  %s\n        expected exit %s, got %s\n' "$name" "$want" "$code"
         FAILED=$((FAILED + 1))
@@ -78,6 +93,12 @@ check "a correct install is conformant" 0 "CONFORMANT" "$D"
 # The case the first validator got wrong.
 D=$(new_project); good_policy "$D"
 check "perfect files but the plugin is not enabled" 1 "not enabled for this project" "$D"
+
+# Each half alone is a different mistake, and each has a different fix.
+D=$(new_project); good_policy "$D"
+mkdir -p "$D/.claude"
+printf '{"enabledPlugins":{"efficiency@claude-efficiency-framework":true}}' > "$D/.claude/settings.json"
+check "settings enable it but this machine has no install" 1 "no install" "$D"
 
 D=$(new_project); enable_in "$D"; good_policy "$D"
 rm -f "$D/gate.sh"
