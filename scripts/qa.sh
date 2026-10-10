@@ -40,16 +40,33 @@ import json, sys
 d = json.load(open("hooks/lib/model-costs.json"))
 if d.get("default") not in d.get("models", {}):
     sys.exit("default model is not in the table")
-for name, p in d["models"].items():
+
+
+def check_card(label, p):
     for k in ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h"):
         if not isinstance(p.get(k), (int, float)):
-            sys.exit("%s: %s is missing or not a number" % (name, k))
+            sys.exit("%s: %s is missing or not a number" % (label, k))
     # These ratios are the documented billing rule, not a preference. A table
     # that drifts from them measures spend wrong in silence.
     if abs(p["cache_write_5m"] - p["input"] * 1.25) > 1e-9:
-        sys.exit("%s: 5m cache write is not 1.25x input" % name)
+        sys.exit("%s: 5m cache write is not 1.25x input" % label)
     if abs(p["cache_write_1h"] - p["input"] * 2.0) > 1e-9:
-        sys.exit("%s: 1h cache write is not 2x input" % name)
+        sys.exit("%s: 1h cache write is not 2x input" % label)
+
+
+for name, p in d["models"].items():
+    check_card(name, p)
+    # A model may carry a second rate card for long prompts. It is a full card,
+    # charged on every line, so it gets the same scrutiny as the first — an
+    # unchecked tier is a price nobody reads until it is in a ceiling.
+    tier = p.get("long_prompt")
+    if tier is not None:
+        if not isinstance(tier.get("over_tokens"), (int, float)):
+            sys.exit("%s: long_prompt has no over_tokens threshold" % name)
+        check_card("%s (long prompt)" % name, tier)
+        if tier["input"] <= p["input"]:
+            sys.exit("%s: the long-prompt card is not dearer than the short one, "
+                     "so it would never be worth selecting" % name)
 if not d.get("verified"):
     sys.exit("the table has no verified date")
 PY
@@ -86,6 +103,33 @@ PY
     fi
 else
     skip "cost table" "python3 not found"
+fi
+
+# ── 2b. the table prices the models this framework actually routes to ────────
+# Section 2 checks the table against itself, which is how it stayed green while
+# every model of a real run fell through to the expensive fallback. The
+# framework routes by alias; the meter prices by id; Claude Code decides what an
+# alias means, and it moved a generation without anything here changing. The
+# alias-to-id mapping is measured by scripts/probes/model-ids.sh and recorded in
+# the table; this check is the free half that holds the two ends together.
+section "routed models"
+if command -v python3 >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-priced-models.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the routed-model check cannot reach the verdicts it claims"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+
+    out=$(python3 scripts/lib/check-priced-models.py "$ROOT" 2>&1)
+    case "$?" in
+        0) ok "$(printf '%s' "$out" | head -1)" ;;
+        3) skip "alias resolution" "$(printf '%s' "$out" | head -1)" ;;
+        *) bad "an alias this framework routes to has no priced model behind it"
+           printf '%s\n' "$out" | sed 's/^/        /' ;;
+    esac
+else
+    skip "routed models" "python3 not found"
 fi
 
 # ── 3. python compiles, and the hook's selftest is green ─────────────────────
@@ -245,6 +289,19 @@ print(s.get("ref", "") if isinstance(s, dict) else "")')
         bad "marketplace.json pins $V_REF but VERSION says $V_FILE — consumers would get the wrong release"
     else
         ok "marketplace.json pins $V_REF, matching VERSION"
+    fi
+    # The catalogue carries the version twice — once as the ref consumers pin,
+    # once as a field beside the description. Only the ref was checked, and the
+    # field sat at 0.13.0 through four releases: a duplicated fact going wrong
+    # in exactly the copy nobody was reading.
+    V_CAT=$(python3 -c 'import json
+print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0].get("version", ""))')
+    if [ -z "$V_CAT" ]; then
+        skip "marketplace version field" "the catalogue entry declares none"
+    elif [ "$V_CAT" != "$V_FILE" ]; then
+        bad "marketplace.json's plugin entry says $V_CAT but VERSION says $V_FILE"
+    else
+        ok "marketplace.json's plugin entry agrees on $V_FILE"
     fi
     if grep -q "^## \[$V_FILE\]" CHANGELOG.md 2>/dev/null; then
         ok "CHANGELOG.md has an entry for $V_FILE"

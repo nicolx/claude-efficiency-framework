@@ -437,6 +437,49 @@ def _():
     return p
 
 
+@case("a model priced by prompt length is charged at the card its prompt earns")
+def _():
+    # Claude Haiku 5.5 is the first model whose price depends on the size of the
+    # request: over 100,000 prompt tokens it costs about five times as much, on
+    # every line. A table holding one number per model had to be wrong one way
+    # or the other — and `haiku` resolves to it, so the error would have landed
+    # on exactly the routing the framework exists to recommend.
+    #
+    # 100,000 input tokens is the boundary itself: "over 100,000" is strictly
+    # over, so this is the cheap card. 100_000 * $0.10/MTok = $0.01.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10**9)
+    p.write_transcript([("claude-haiku-5-5",
+                         {"input_tokens": 100_000, "output_tokens": 0},
+                         "2026-01-01T00:00:00Z")])
+    p.invoke()
+    split = p.state().get("task_spend_by_model", "")
+    check("a model priced by prompt length is charged at the card its prompt earns",
+          "claude-haiku-5-5=10000" in split, "got %r" % split)
+    return p
+
+
+@case("a prompt is long because of its cache reads, not its input_tokens")
+def _():
+    # On a Claude Code turn `input_tokens` is usually a handful: almost the whole
+    # prompt arrives as a cache read. The pricing rule counts every input token
+    # of the request, cache reads included, so a reading that looked at
+    # `input_tokens` alone would price a 400k-token turn as a small one and
+    # under-report it fivefold — the direction a ceiling must never be wrong in.
+    #
+    # 400,000 cache-read tokens, nothing else: $0.05/MTok on the long card is
+    # $0.02, against $0.004 if the short card had been chosen.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10**9)
+    p.write_transcript([("claude-haiku-5-5",
+                         {"input_tokens": 0, "output_tokens": 0,
+                          "cache_read_input_tokens": 400_000},
+                         "2026-01-01T00:00:00Z")])
+    p.invoke()
+    split = p.state().get("task_spend_by_model", "")
+    check("a prompt is long because of its cache reads, not its input_tokens",
+          "claude-haiku-5-5=20000" in split, "got %r" % split)
+    return p
+
+
 @case("spend over the ceiling: stops the task and asks for an opinion")
 def _():
     p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)

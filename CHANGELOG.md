@@ -10,6 +10,59 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.18.0] — 2026-10-10
+
+### Fixed — the cheap model was unpriced, so the cheap model was never cheap
+
+`haiku` resolves to `claude-haiku-5-5`, measured. The cost table did not hold it, so every run that
+routed there was priced at the fallback — deliberately the most expensive row, because an unknown
+model must never quietly raise a ceiling. Safe for a guard, backwards for a report: the model the
+framework recommends *because* it is cheap was the one being billed at top-tier rates.
+
+It is priced now, and it is the first model where one id is not one price. Claude Haiku 5.5 charges
+by prompt length — about 5× over 100,000 prompt tokens, on every line, each request on its own. A
+model may carry a second rate card under `long_prompt`, and `hooks/lib/spend.py` picks per message.
+The threshold counts every input token of the request, **cache reads included**: on a Claude Code
+turn `input_tokens` is a handful and the rest of the prompt is a cache read, so counting only
+`input_tokens` would under-report a long turn fivefold.
+
+### Fixed — two cache-read prices, wrong since they were written
+
+`claude-mythos-5-1` was priced at $1.00 per million cache-read tokens where it is $0.25, and
+`claude-sonnet-5-5` at $0.20 where it is $0.10. Both had been written as 0.1× input, which is the
+usual ratio and wrong for those two models.
+
+Found by re-reading the pricing page rather than by any check, and that is not fixable: cache reads
+have no single ratio (0.1× on most models, 0.05× on Opus 5.5 and Sonnet 5.5, 0.025× on Fable 5.1 and
+Mythos 5.1), so a wrong one is perfectly self-consistent. The `verified` date and its staleness
+warning are the only guard this class of error has, which is now written down beside the prices.
+
+### Added — the gate can tell the table is missing the models in use
+
+The framework routes by **alias**; the meter prices by **id**; Claude Code decides what an alias
+means, and nothing in the plugin changes when that answer moves a generation. Section 2 of the gate
+compared the table with itself and was green throughout the failure above.
+
+- `scripts/probes/model-ids.sh` resolves each alias with one near-empty session, reading the id out
+  of the `stream-json` init event, and says which are unpriced. It reads the alias list from
+  `agents/*.md` and `templates/efficiency.md`, so a new agent is covered the day it lands.
+- The mapping it measures is recorded in `hooks/lib/model-costs.json` under `resolved`, beside the
+  prices it selects.
+- `scripts/lib/check-priced-models.py` is the free half: every routed alias has a measured id, every
+  measured id has a price, and the mapping is not older than 90 days.
+
+### Fixed — the marketplace catalogue had been declaring 0.13.0 since 0.13.0
+
+`marketplace.json` carries the version twice: as the `ref` consumers pin, and as a field beside the
+description. Only the ref was checked, so the field sat four releases behind. Corrected, and the gate
+now reads both copies.
+
+### Measured
+
+`docs/verified-platform-behaviour.md` § 16 — what `haiku`, `sonnet` and `opus` resolved to on
+2.1.296, why nothing in the repo could have noticed, and which half of the check has to stay a probe
+because resolving an alias costs money.
+
 ## [0.17.0] — 2026-10-10
 
 ### Fixed — a run file with no ceilings had no ceilings, and said nothing

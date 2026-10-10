@@ -309,8 +309,9 @@ command files to keep in step, and no version marker.
 
 **Everything this framework writes lives in `.efficiency/` at the project root** — the policy
 (committed), the run, and the hook's counters (both gitignored). Not in `.claude/`: Claude Code
-refuses writes there, across every tool and regardless of permission rules, so files the model has
-to update cannot live in it. That one fact is why the autopilot can arm itself at all.
+refuses writes there under the permission modes an unattended run actually uses — `acceptEdits` and
+`dontAsk` — across every tool, and no allow rule lifts it. Files the model has to update cannot live
+somewhere it may not be allowed to write. That one fact is why the autopilot can arm itself at all.
 
 **The plugin is inert in any project without `.efficiency/policy.md`.** Nothing fires, nothing is
 injected, nothing costs a token. Adoption is a file, not a switch.

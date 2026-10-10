@@ -10,15 +10,39 @@
     "subscription and 5 minutes for subagents, and the transcript reports the split,",
     "so both rates are listed rather than assumed.",
     "",
-    "Cache reads are 0.1x input everywhere except Claude Fable 5.1, which is 0.025x.",
+    "Cache reads are 0.1x input on most models, 0.05x on Claude Opus 5.5 and Claude",
+    "Sonnet 5.5, and 0.025x on Claude Fable 5.1 and Claude Mythos 5.1. There is no",
+    "single ratio, which is why cache_read is listed per model and why the gate",
+    "cannot check it the way it checks the cache-write ratios: a wrong number here",
+    "is internally consistent. Two were, until 2026-10-10.",
     "",
-    "Verified against the bundled claude-api skill on 2026-09-05. Re-check on any",
-    "model release: a stale table makes the spend ceiling lie in whichever direction",
-    "the price moved."
+    "`long_prompt` is a second rate card for the same model, used when a request's",
+    "prompt is over `over_tokens` tokens. Claude Haiku 5.5 is the first model priced",
+    "that way, at roughly 5x on every line. Prompt length counts every input token of",
+    "the request, cache reads and cache writes included.",
+    "",
+    "`resolved` records what Claude Code turned each routing alias into, because the",
+    "framework routes by alias and this table prices ids. Nothing in the plugin",
+    "changes when `haiku` starts meaning a new generation, so the mapping is measured",
+    "rather than assumed: scripts/probes/model-ids.sh.",
+    "",
+    "Prices verified against platform.claude.com/docs/en/about-claude/pricing on",
+    "2026-10-10. Re-check on any model release: a stale table makes the spend ceiling",
+    "lie in whichever direction the price moved."
   ],
   "verified": "2026-10-10",
   "default": "claude-fable-5-1",
   "_default_comment": "Unknown model ids fall back to the most expensive entry on purpose: an unknown model overestimates spend, so the ceiling fires early rather than late.",
+  "resolved": {
+    "_comment": "Measured with scripts/probes/model-ids.sh, one near-empty session per alias, reading the resolved id out of the stream-json init event.",
+    "measured": "2026-10-10",
+    "claude_code_version": "2.1.296",
+    "aliases": {
+      "haiku": "claude-haiku-5-5",
+      "opus": "claude-opus-5-5",
+      "sonnet": "claude-sonnet-5-5"
+    }
+  },
   "models": {
     "claude-fable-5-1": {
       "input": 10.0,
@@ -30,7 +54,7 @@
     "claude-mythos-5-1": {
       "input": 10.0,
       "output": 50.0,
-      "cache_read": 1.0,
+      "cache_read": 0.25,
       "cache_write_5m": 12.5,
       "cache_write_1h": 20.0
     },
@@ -40,6 +64,13 @@
       "cache_read": 1.0,
       "cache_write_5m": 12.5,
       "cache_write_1h": 20.0
+    },
+    "claude-opus-5-5": {
+      "input": 4.0,
+      "output": 20.0,
+      "cache_read": 0.2,
+      "cache_write_5m": 5.0,
+      "cache_write_1h": 8.0
     },
     "claude-opus-5": {
       "input": 5.0,
@@ -69,6 +100,13 @@
       "cache_write_5m": 6.25,
       "cache_write_1h": 10.0
     },
+    "claude-sonnet-5-5": {
+      "input": 2.0,
+      "output": 10.0,
+      "cache_read": 0.1,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4.0
+    },
     "claude-sonnet-5": {
       "input": 2.0,
       "output": 10.0,
@@ -83,26 +121,27 @@
       "cache_write_5m": 3.75,
       "cache_write_1h": 6.0
     },
+    "claude-haiku-5-5": {
+      "input": 0.1,
+      "output": 0.5,
+      "cache_read": 0.01,
+      "cache_write_5m": 0.125,
+      "cache_write_1h": 0.2,
+      "long_prompt": {
+        "over_tokens": 100000,
+        "input": 0.5,
+        "output": 2.5,
+        "cache_read": 0.05,
+        "cache_write_5m": 0.625,
+        "cache_write_1h": 1.0
+      }
+    },
     "claude-haiku-4-5": {
       "input": 1.0,
       "output": 5.0,
       "cache_read": 0.1,
       "cache_write_5m": 1.25,
       "cache_write_1h": 2.0
-    },
-    "claude-opus-5-5": {
-      "input": 4.0,
-      "output": 20.0,
-      "cache_read": 0.2,
-      "cache_write_5m": 5.0,
-      "cache_write_1h": 8.0
-    },
-    "claude-sonnet-5-5": {
-      "input": 2.0,
-      "output": 10.0,
-      "cache_read": 0.2,
-      "cache_write_5m": 2.5,
-      "cache_write_1h": 4.0
     }
   }
 }

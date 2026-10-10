@@ -531,14 +531,72 @@ fallback is no longer silent — `hooks/lib/spend.py` returns the ids it could n
 writes them to `task_spend_unpriced_models`, and `skills/run-report/SKILL.md` requires the report to
 say so before showing any table.
 
-`claude-haiku-5-5` is still unpriced here, because this repo's pricing source does not list it, and
-inventing a number to make a figure look finished is the thing this document exists to prevent. Until
-it is priced, any run that touches Haiku reports a ceiling, not a cost.
+`claude-haiku-5-5` was left unpriced at the time, because the pricing source this repo was reading
+did not list it, and inventing a number to make a figure look finished is the thing this document
+exists to prevent. It is priced now — section 16, which also measured why nothing here could have
+noticed.
 
 *Measured 2026-10-10 on Claude Code 2.1.296. The first attempt measured nothing: the run file was
 hand-written without `task_spend_max_micro_usd`, so `spend_max` seeded to 0 and the entire spend
 guard — including its fail-closed branch — never executed. A run file missing its ceilings has no
 ceilings, silently, and the symptom surfaces minutes later and somewhere else.*
+
+## 16. `haiku`, `sonnet` and `opus` are not model ids, and nobody was checking what they meant
+
+Measured **2026-10-10** on **2.1.296** with `scripts/probes/model-ids.sh`: one near-empty session per
+alias, reading the resolved id out of the `init` event that opens a `--output-format stream-json`
+session.
+
+| alias | resolves to | in the cost table before this |
+|---|---|---|
+| `haiku` | `claude-haiku-5-5` | no |
+| `sonnet` | `claude-sonnet-5-5` | yes, added the day before |
+| `opus` | `claude-opus-5-5` | yes, added the day before |
+
+The framework routes by **alias** — `model: haiku` in an agent, `implement: sonnet` in a policy — and
+never names an id. `hooks/lib/spend.py` prices **ids**. Claude Code decides, at session start, which
+id an alias means, and that decision is invisible from inside this repo: nothing in the plugin
+changes on the day `haiku` starts meaning a new generation. Section 15 is what that looks like when
+it goes wrong — three models, one wrong price, a green gate throughout.
+
+The gate was green because it was asking the table about itself: internally consistent, recently
+dated, default present. Every one of those can be true of a table that holds none of the models in
+use. `scripts/lib/check-priced-models.py` asks the other question — reading the aliases out of
+`agents/*.md` and `templates/efficiency.md` so a new agent is covered the day it lands, and requiring
+each to resolve to an id the table prices. Resolving an alias costs money and needs the network, so
+that half stays a probe; the mapping it measures is recorded in `hooks/lib/model-costs.json` under
+`resolved`, beside the prices it selects, and the gate holds the two ends together for free.
+
+### One model is no longer one price
+
+Claude Haiku 5.5 is priced by prompt length: over 100,000 prompt tokens it costs about five times as
+much, on every line of the bill, and each request is priced on its own. The table held one rate card
+per model, so it could only have been wrong in one direction or the other — and `haiku` is precisely
+where the framework sends work it is recommending as cheap.
+
+A model may now carry a second card under `long_prompt`, and the meter picks per message. The
+threshold counts **every input token of the request, cache reads and cache writes included**, which
+is what the pricing page specifies and is not the same as `input_tokens`: on a Claude Code turn
+`input_tokens` is usually a handful and the rest of the prompt arrives as a cache read. Reading only
+`input_tokens` would price a 400k-token turn at the small-prompt rate and under-report it fivefold —
+the direction a ceiling must never be wrong in. Both halves have a selftest case, and both cases were
+watched failing with the guard removed.
+
+### What re-checking the rest of the table turned up
+
+Verifying the other twelve rows against the pricing page found two wrong cache-read prices:
+`claude-mythos-5-1` at $1.00 where it is $0.25, and `claude-sonnet-5-5` at $0.20 where it is $0.10.
+Both had been written as 0.1× input, which is the usual ratio and is wrong for those two models.
+
+That class of error is structurally invisible to this repo's gate, and the fix is to say so rather
+than to pretend otherwise. The cache-write ratios are checkable because they are fixed multiples of
+input — 1.25× and 2× — so a drifted number contradicts the table itself. Cache reads have no single
+ratio: 0.1× on most models, 0.05× on Opus 5.5 and Sonnet 5.5, 0.025× on Fable 5.1 and Mythos 5.1. A
+wrong cache-read price is perfectly self-consistent. Nothing short of re-reading the pricing page
+catches it, which is what the `verified` date and its 90-day staleness warning exist to force.
+
+*Measured 2026-10-10 on Claude Code 2.1.296. Prices verified the same day against
+`platform.claude.com/docs/en/about-claude/pricing`.*
 
 ## Re-running these measurements
 
@@ -547,6 +605,7 @@ bash scripts/probes/stop-cap.sh stall 40   # expect ~9 invocations, platform cap
 bash scripts/probes/stop-cap.sh read  12   # expect 6, bound by --max-turns, cap never fires
 bash scripts/probes/stop-cap.sh write 12   # expect 6, same
 bash scripts/probes/transcript-shape.sh <path-to-transcript.jsonl>  # show subagents directory and usage keys present
+bash scripts/probes/model-ids.sh           # which id each routing alias resolves to, and whether it is priced
 bash scripts/probes/statusline.sh install   # then start a session, look at the bottom, and `show`
 bash scripts/probes/pdf-token-cost.sh make # build the test PDF; read it in a session, then `measure <transcript>`
 ```

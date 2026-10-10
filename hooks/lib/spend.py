@@ -106,6 +106,46 @@ def transcripts_for(main_transcript):
     return paths
 
 
+def prompt_tokens(usage):
+    """Every input token of one request — cache reads and cache writes included.
+
+    Not the same as `input_tokens`, which on a Claude Code turn is usually a
+    handful: almost the whole prompt arrives as a cache read. The distinction
+    only started to matter when a model began charging by prompt length, and
+    getting it wrong there is a 5x error in the direction a ceiling must never
+    be wrong in.
+    """
+    total = usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0)
+    breakdown = usage.get("cache_creation")
+    if isinstance(breakdown, dict):
+        total += (breakdown.get("ephemeral_5m_input_tokens", 0)
+                  + breakdown.get("ephemeral_1h_input_tokens", 0))
+    else:
+        total += usage.get("cache_creation_input_tokens", 0)
+    return total
+
+
+def rates_for(price, usage):
+    """The rate card for one message, which on some models depends on its size.
+
+    One model used to mean one set of prices. Claude Haiku 5.5 broke that: a
+    request whose prompt is over 100,000 tokens pays about five times as much,
+    on every line of the bill, and each request is priced on its own. A table
+    that could only hold one number per model had to either overcharge every
+    short Haiku turn or undercharge every long one.
+
+    A model without a `long_prompt` card is unaffected, so this costs nothing
+    for the other twelve rows.
+    """
+    tier = price.get("long_prompt")
+    if not isinstance(tier, dict):
+        return price
+    threshold = tier.get("over_tokens")
+    if not isinstance(threshold, (int, float)):
+        return price
+    return tier if prompt_tokens(usage) > threshold else price
+
+
 def line_cost(usage, price):
     """Micro-dollars for one assistant message.
 
@@ -114,6 +154,7 @@ def line_cost(usage, price):
     the higher of the two, so an unknown shape overestimates and the ceiling
     fires early rather than late.
     """
+    price = rates_for(price, usage)
     dollars = 0.0
     dollars += usage.get("input_tokens", 0) * price["input"] / PER_TOKEN
     dollars += usage.get("output_tokens", 0) * price["output"] / PER_TOKEN
