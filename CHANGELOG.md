@@ -10,6 +10,28 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [Unreleased]
+
+### Fixed — the alias-to-id mapping expired on the wrong clock
+
+Repo-internal: it changes `scripts/` and `docs/` only, so no consumer session behaves differently
+and `VERSION` does not move.
+
+The framework routes by alias and the meter prices by id, and the gate holds the two together by
+checking a mapping the probe measured. That mapping was aged on a 90-day calendar — but what
+falsifies it is a **Claude Code release**, not the passage of time. An upgrade that moved what
+`haiku` resolves to would have left the gate green for up to three months while every run routed
+there was measured at the fallback rate.
+
+`scripts/lib/check-priced-models.py` now reads `claude --version` — a local subprocess, no session,
+no network, so it still runs anywhere the rest of the gate does — and compares it with
+`resolved.claude_code_version`. A mismatch reports the mapping **unverified** rather than wrong:
+exit 3, which `scripts/qa.sh` already renders as a skip. Amber and not red, because a release *can*
+move an alias without certainly having done so, and a gate that goes red on every upgrade is one
+people learn to skip. Where `claude` is absent — CI — the comparison is skipped and the output says
+so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
+under a client that never did.
+
 ## [0.18.0] — 2026-10-10
 
 ### Fixed — the cheap model was unpriced, so the cheap model was never cheap

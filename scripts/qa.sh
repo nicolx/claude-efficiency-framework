@@ -111,7 +111,9 @@ fi
 # framework routes by alias; the meter prices by id; Claude Code decides what an
 # alias means, and it moved a generation without anything here changing. The
 # alias-to-id mapping is measured by scripts/probes/model-ids.sh and recorded in
-# the table; this check is the free half that holds the two ends together.
+# the table; this check is the free half that holds the two ends together — and
+# compares the Claude Code that measured the mapping with the one installed,
+# because what falsifies a mapping is a release, not the passage of time.
 section "routed models"
 if command -v python3 >/dev/null 2>&1; then
     if out=$(python3 scripts/lib/check-priced-models.py --selftest 2>&1); then

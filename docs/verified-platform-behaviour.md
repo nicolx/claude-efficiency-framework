@@ -567,6 +567,19 @@ each to resolve to an id the table prices. Resolving an alias costs money and ne
 that half stays a probe; the mapping it measures is recorded in `hooks/lib/model-costs.json` under
 `resolved`, beside the prices it selects, and the gate holds the two ends together for free.
 
+### A measured mapping expires on a release, not on a date
+
+The mapping above is true of **2.1.296**. What makes it false is an upgrade, and the first version of
+the gate aged it on a 90-day calendar — so an upgrade that moved what `haiku` means would have left
+the gate green for up to three months while every run that routed there was measured at the fallback
+rate. The clock was attached to the wrong thing.
+
+`claude --version` is a local subprocess: free, no session, no network. The gate now compares it with
+`resolved.claude_code_version` and reports the mapping as **unverified** when they differ, which is
+the honest reading — a release *can* move an alias, and nobody has looked since. It is amber rather
+than red, because red on every upgrade is a gate people learn to skip. The calendar stays behind it,
+for a mapping that moves server-side under a client that never did.
+
 ### One model is no longer one price
 
 Claude Haiku 5.5 is priced by prompt length: over 100,000 prompt tokens it costs about five times as

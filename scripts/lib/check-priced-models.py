@@ -20,14 +20,24 @@ The second half of that cannot be answered for free — resolving an alias means
 starting a session, which costs money and needs the network. That belongs in a
 probe, and `scripts/probes/model-ids.sh` is it. The probe measures the mapping
 and prints it; the mapping is recorded in the cost table under `resolved`,
-beside the prices it selects; and this check — free, offline — holds the two
-halves together:
+beside the prices it selects; and this check — free, no API call —
+holds the three ends together:
 
-  * every alias the shipped artefacts route to has a measured id, and
-  * every measured id has a price.
+  * every alias the shipped artefacts route to has a measured id,
+  * every measured id has a price, and
+  * the Claude Code that measured the mapping is the one installed.
 
-Exit codes, for `scripts/qa.sh`: 0 complete, 1 a gap, 3 the mapping is older
-than the platform is likely to have stayed still.
+That third one is the clock that matters. What falsifies the mapping is a
+Claude Code release, not the passage of time: on the day an upgrade moves what
+`haiku` resolves to, the recorded mapping is wrong and the calendar still has
+three months left to run. Comparing `resolved.claude_code_version` against
+`claude --version` costs one local subprocess and no session, so it belongs
+here rather than in the probe. The calendar stays behind it as a backstop, for
+a mapping that moves server-side under a client that never did.
+
+Exit codes, for `scripts/qa.sh`: 0 complete, 1 a gap, 3 the mapping is no
+longer known to hold — a different Claude Code is installed, or it was
+measured longer ago than the platform is likely to have stood still.
 """
 
 import datetime
@@ -35,6 +45,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 STALE_DAYS = 90
@@ -69,7 +80,46 @@ def aliases_routed(root):
     return {a for a in found if a not in NOT_A_MODEL}
 
 
-def run(root):
+# `run` looks the version up itself unless a caller hands one in. The selftest
+# hands one in: a case whose verdict depended on the machine it ran on would be
+# testing the machine.
+_LOOK_IT_UP = object()
+
+
+def installed_claude_version():
+    """The Claude Code on this machine, or None if it cannot be had.
+
+    Local, free, and it starts no session — which is what lets the comparison
+    live in the gate beside the offline checks instead of in a probe.
+
+    Parsed the way `scripts/probes/model-ids.sh` parses it: the first
+    whitespace-separated token of the first line, so `2.1.296 (Claude Code)`
+    reads as `2.1.296`. If the two ever disagreed, the recorded mapping would
+    be compared against a string no probe ever writes, and the check would
+    fire for ever.
+
+    None on anything at all — not installed, non-zero exit, timeout,
+    unparseable output. A check that cannot see the version falls back to the
+    calendar; it does not fail. The gate has to stay runnable where `claude`
+    is not, which is CI.
+    """
+    try:
+        done = subprocess.run(["claude", "--version"], capture_output=True,
+                              text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    lines = (done.stdout or "").strip().splitlines()
+    if not lines:
+        return None
+    token = lines[0].split()
+    return token[0] if token else None
+
+
+def run(root, installed=_LOOK_IT_UP):
+    if installed is _LOOK_IT_UP:
+        installed = installed_claude_version()
     path = os.path.join(root, COSTS)
     try:
         with open(path) as fh:
@@ -128,12 +178,40 @@ def run(root):
 
     summary = "%d alias(es) — %s — each resolving to a priced id" % (
         len(routed), ", ".join("%s→%s" % (a, mapping[a]) for a in sorted(routed)))
+
+    recorded = resolved.get("claude_code_version")
+    if not isinstance(recorded, str) or not recorded.strip():
+        # The date says when it was measured. Only this says *against what*,
+        # and without it the mapping cannot be told apart from one measured on
+        # a Claude Code that no longer exists.
+        print("%s: the mapping does not record `resolved.claude_code_version`, so "
+              "nothing can tell whether the Claude Code that measured it is the "
+              "one installed — re-run scripts/probes/model-ids.sh" % COSTS)
+        return 3
+
+    note = ""
+    if installed is None:
+        # No `claude` to ask — CI, most likely. The calendar is all that is
+        # left, and saying so is the difference between a check that passed and
+        # one that merely did not run.
+        note = (" — claude is not on PATH, so the mapping was not checked against "
+                "the installed version")
+    elif installed != recorded:
+        # Not an error: a release moving the mapping is possible, not certain.
+        # What is certain is that nobody has looked since. Red here would be red
+        # on every upgrade, and a gate that cries wolf gets skipped.
+        print("%s, but the mapping was measured on Claude Code %s and %s is "
+              "installed. A release can move what an alias resolves to, so the "
+              "mapping is unverified rather than wrong — re-run "
+              "scripts/probes/model-ids.sh" % (summary, recorded, installed))
+        return 3
+
     if age > STALE_DAYS:
         print("%s, but measured %d days ago on Claude Code %s — re-run "
-              "scripts/probes/model-ids.sh"
-              % (summary, age, resolved.get("claude_code_version", "an unrecorded version")))
+              "scripts/probes/model-ids.sh" % (summary, age, recorded))
         return 3
-    print("%s (measured %d day(s) ago)" % (summary, age))
+    print("%s (measured %d day(s) ago on Claude Code %s)%s"
+          % (summary, age, recorded, note))
     return 0
 
 
@@ -157,19 +235,43 @@ def _age_the_mapping(c):
     return c
 
 
+def _drop_version(c):
+    del c["resolved"]["claude_code_version"]
+    return c
+
+
 def _drop_resolved(c):
     del c["resolved"]
     return c
 
 
+# The fixture records having been measured on 2.1.296, so a case passing that
+# string is a case where the installed Claude Code is the one that measured.
+MEASURED_ON = "2.1.296"
+
 SELFTEST_CASES = [
-    # name, mutation applied to a known-good table, expected exit, expected words
-    ("complete and fresh", lambda c: c, 0, "each resolving to a priced id"),
-    ("an alias resolves to an id with no price", _drop_price, 1, "does not price"),
-    ("an alias was never resolved at all", _drop_alias, 1, "never resolved to an id"),
-    ("the mapping has no date", _drop_date, 1, "cannot be re-derived"),
-    ("the mapping is years old", _age_the_mapping, 3, "re-run"),
-    ("nothing was ever measured", _drop_resolved, 1, "no `resolved` block"),
+    # name, mutation of a known-good table, installed version, exit, words
+    ("complete, fresh, and measured on the installed version",
+     lambda c: c, MEASURED_ON, 0, "each resolving to a priced id"),
+    ("an alias resolves to an id with no price",
+     _drop_price, MEASURED_ON, 1, "does not price"),
+    ("an alias was never resolved at all",
+     _drop_alias, MEASURED_ON, 1, "never resolved to an id"),
+    ("the mapping has no date",
+     _drop_date, MEASURED_ON, 1, "cannot be re-derived"),
+    ("the mapping is years old",
+     _age_the_mapping, MEASURED_ON, 3, "re-run"),
+    ("nothing was ever measured",
+     _drop_resolved, MEASURED_ON, 1, "no `resolved` block"),
+    # The three below are the clock that actually falsifies the mapping. Every
+    # one of them was green before the version comparison existed, which is the
+    # whole reason it does.
+    ("the installed Claude Code is not the one that measured the mapping",
+     lambda c: c, "2.1.400", 3, "is installed"),
+    ("the mapping does not say which Claude Code measured it",
+     _drop_version, MEASURED_ON, 3, "does not record"),
+    ("claude is not on PATH, so only the calendar is left",
+     lambda c: c, None, 0, "not on PATH"),
 ]
 
 
@@ -188,12 +290,12 @@ def selftest():
     good = {
         "default": "claude-fable-5-1",
         "models": {"claude-fable-5-1": {}, "claude-haiku-5-5": {}, "claude-opus-5-5": {}},
-        "resolved": {"measured": today, "claude_code_version": "2.1.296",
+        "resolved": {"measured": today, "claude_code_version": MEASURED_ON,
                      "aliases": {"haiku": "claude-haiku-5-5", "opus": "claude-opus-5-5"}},
     }
 
     failures = []
-    for name, mutate, expected, words in SELFTEST_CASES:
+    for name, mutate, installed, expected, words in SELFTEST_CASES:
         tmp = tempfile.mkdtemp()
         try:
             os.makedirs(os.path.join(tmp, "hooks", "lib"))
@@ -209,7 +311,7 @@ def selftest():
             sink = io.StringIO()
             try:
                 sys.stdout = sys.stderr = sink
-                got = run(tmp)
+                got = run(tmp, installed=installed)
             finally:
                 sys.stdout, sys.stderr = saved
             said = sink.getvalue()
