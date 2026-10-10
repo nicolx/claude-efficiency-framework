@@ -375,24 +375,30 @@ Criticality is assigned **by declared path pattern first**. Where the patterns a
 classifies, says so in one line, and proposes the pattern that would have decided it — so the map
 gets built by using it rather than at a desk.
 
-## The five guards
+## The six guards
 
-The autopilot refuses to end a turn while the approved run has work left. Five things stop it, in
+The autopilot refuses to end a turn while the approved run has work left. Six things stop it, in
 this order:
 
-1. **The per-task spend ceiling.** Default 20% of your declared basket, measured from the session
+1. **Declared ceilings.** A run file that never names `task_spend_max_micro_usd` or
+   `continuations_max` does not run at all. The guard below only executes when a ceiling is set, so a
+   run file without one used to skip the ceiling *and* its fail-closed branch together and proceed
+   unbounded in silence — measured on a real run that executed three tasks that way. A ceiling
+   someone deliberately set to `0` is a decision and is honoured, but it is named in every
+   continuation rather than left to be inferred.
+2. **The per-task spend ceiling.** Default 20% of your declared basket, measured from the session
    transcript in dollars at API list prices — **subagents included**, since delegating review to an
    expensive model is the point. It catches the case the others miss: one task that keeps looking
    productive and never closes. It stops that task and asks you, and the session stays alive.
-2. **The gate retry budget.** Repair attempts on the same red gate.
-3. **The continuation budget.** For the run as a whole.
-4. **The stall guard.** If the same task is handed back repeatedly with nothing closing, the wording
+3. **The gate retry budget.** Repair attempts on the same red gate.
+4. **The continuation budget.** For the run as a whole.
+5. **The stall guard.** If the same task is handed back repeatedly with nothing closing, the wording
    escalates and then the run stops. This one exists because the framework's first real run on its
    own repository failed exactly that way: 12 continuations, the work of one task done, its checkbox
    never ticked, and the last restarts spent narrating the counter instead of working.
-5. **The platform.** Claude Code overrides any `Stop` hook after 8 consecutive blocks **without
+6. **The platform.** Claude Code overrides any `Stop` hook after 8 consecutive blocks **without
    progress** — and it counts blocked *turns*, so a project's own `Stop` hook shares that budget
-   rather than halving it. Ours must fire first, because the first four write a reason you can read
+   rather than halving it. Ours must fire first, because the first five write a reason you can read
    and this one does not.
 
 If spend cannot be measured, the run **stops**. An unmeasured ceiling is not a ceiling.

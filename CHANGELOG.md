@@ -10,6 +10,40 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.17.0] — 2026-10-10
+
+### Fixed — a run file with no ceilings had no ceilings, and said nothing
+
+The spend guard only executed when `spend_max > 0`. A run file that never named
+`task_spend_max_micro_usd` therefore skipped the guard **and the fail-closed branch inside it** —
+the one that exists because rule 2 of this project says an unmeasured ceiling is not a ceiling. Same
+for `continuations_max`. The run went ahead unbounded, in silence, and the only symptom arrived
+minutes later and somewhere else: a report that could not say what anything had cost.
+
+Measured on a real run, which executed three tasks that way.
+
+The fix turns on a distinction the code never drew: **absent is not zero**.
+
+- **A ceiling that was never written stops the run**, with a reason naming the missing key and
+  pointing at `/efficiency:plan-run`, which writes both from the policy's `budget`. This is the same
+  doctrine as refusing to start without a gate.
+- **A ceiling someone wrote as `0` is honoured** — it is a decision, and a developer approved the
+  plan that contains it — **but it is announced on every continuation**: *"Running with no spend
+  ceiling — set in the run file as 0. Nothing will stop this run on that count."*
+
+A model that rewrites the frontmatter and drops the keys it does not recognise now stops the run
+rather than continuing without limits. Deleting your own ceiling is the most complete way of
+extending a run, so it is the last thing that may pass quietly.
+
+**If a run stops on this**, the run file predates this version or was written by hand. Re-plan with
+`/efficiency:plan-run`; nothing in the policy changes.
+
+Three selftest cases, each confirmed to fail with the guard removed. The existing case that proved a
+frontmatter rewrite cannot reset the stall counter was superseded rather than deleted — it now
+asserts both the old protection and the stronger new one.
+
+The guard list is stated in two places, `README.md` and the hook's own header, and both were updated.
+
 ## [0.16.0] — 2026-10-10
 
 ### Fixed — a quoted gate never ran, and the framework read that as failing tests

@@ -14,8 +14,11 @@ this exits 0 in silence and Claude Code behaves exactly as it would without the
 plugin. There is no switch to forget: the run file *is* the switch, which is the
 activation pattern Claude Code documents for conditional hooks.
 
-── The four guards, nested ──────────────────────────────────────────────────
+── The five guards, nested ──────────────────────────────────────────────────
 
+  declared ceilings a run file that never names its ceilings does not run: a
+                   ceiling that was never set is not a ceiling. An explicit 0 is
+                   a decision and is honoured, but it is announced every turn
   spend_max        stops a task that keeps looking productive and never closes
   gate_retries_max stops repair attempts on the same red gate
   continuations_max stops the run as a whole
@@ -24,7 +27,7 @@ activation pattern Claude Code documents for conditional hooks.
                     Any tool call resets that counter, so it never truncates a
                     run that is working; it is a free anti-stall guard.
 
-The first three write a reason a human can read. The platform's does not — which
+The first four write a reason a human can read. The platform's does not — which
 is why ours must fire first.
 
 ── Rules it obeys ───────────────────────────────────────────────────────────
@@ -159,6 +162,16 @@ class Run:
 
     def get(self, key, default=""):
         return self.values.get(key, default)
+
+    def has(self, key):
+        """Was the key written at all? Not the same question as its value.
+
+        A ceiling of 0 is a choice someone made and approved. A ceiling that was
+        never written is an incomplete run file, and the two had been
+        indistinguishable — which is how a run executed with every guard
+        disabled and nothing said so.
+        """
+        return key in self.values
 
     def get_int(self, key, default=0):
         try:
@@ -391,6 +404,30 @@ def main():
         }
         priv.save()
 
+    # ── guard 0: the run file must actually declare its ceilings ────────────
+    # Rule 2 of this project says an unmeasured ceiling is not a ceiling, and the
+    # spend guard already fails closed when it cannot measure. But it only runs
+    # at all when `spend_max > 0`, so a run file that never named a ceiling
+    # skipped the guard *and* its fail-closed branch together, and the run went
+    # ahead unbounded without a word. Measured: a hand-written run file executed
+    # three tasks with spend_max and continuations_max both 0, and the only
+    # symptom was a report three minutes later that could not say what anything
+    # cost.
+    #
+    # An explicit 0 is left alone. Someone wrote it and a developer approved the
+    # plan that contains it, so it is a decision — but it is announced below
+    # rather than kept quiet.
+    missing = [k for k in ("task_spend_max_micro_usd", "continuations_max") if not run.has(k)]
+    if missing:
+        priv.block_run(run, "the run file does not declare %s, so the run would have no %s at all. "
+                            "A ceiling that was never set is not a ceiling. Re-plan with "
+                            "/efficiency:plan-run, which writes them from the policy's budget."
+                            % (" or ".join(missing),
+                               "ceilings" if len(missing) > 1 else "ceiling"))
+        allow_with_note("efficiency autopilot: stopped — %s missing from the run file, so the run "
+                        "had no ceiling. /efficiency:plan-run writes them from the policy."
+                        % " and ".join(missing))
+
     # The private verdict wins. A run file flipped back to ACTIVE does not
     # resume a run a guard stopped; only re-planning or deleting the state file
     # does, and both are deliberate.
@@ -566,8 +603,22 @@ def main():
                    "say why instead of trying again; this run stops on its own after %d.\n"
                    % (task, same, open_now, STALL_STOP))
 
-    block("%d task(s) still open, gate green. Current task: %s.\n\n%s%s\nNext open task: %s"
-          % (open_now, task, steps, warning, remaining[0]))
+    # A ceiling someone deliberately set to zero is honoured, but not hidden. It
+    # is a real decision with a real consequence — the run is unbounded in that
+    # dimension — and the developer reading the transcript afterwards should not
+    # have to infer it from the absence of a number.
+    unbounded = []
+    if priv.get_int("spend_max", 0) <= 0:
+        unbounded.append("no spend ceiling")
+    if priv.get_int("continuations_max", 0) <= 0:
+        unbounded.append("no limit on continuations")
+    note = ""
+    if unbounded:
+        note = ("\n\nRunning with %s — set in the run file as 0. Nothing will stop this run "
+                "on that count.\n" % " and ".join(unbounded))
+
+    block("%d task(s) still open, gate green. Current task: %s.\n\n%s%s%s\nNext open task: %s"
+          % (open_now, task, steps, warning, note, remaining[0]))
 
 
 if __name__ == "__main__":

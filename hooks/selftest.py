@@ -603,9 +603,67 @@ def _():
             if l.split(":", 1)[0] in ("status", "gate", "current_task", "blocked_reason")]
     open(p.run_path, "w").write("---\n" + "\n".join(kept) + "\n---\n" + body)
     p.invoke()
+    # Two separate protections, and the second was added later. The counter is
+    # not reset by the rewrite, because it does not live in the file. And the
+    # run now stops outright, because the keys the model dropped include its
+    # ceilings — deleting your own ceiling is the most complete way of extending
+    # a run, so it is the last thing that may be allowed to pass quietly.
+    st = p.state()
     check("rewriting the run file's frontmatter cannot reset the stall counter",
-          stalled == 1 and p.private()["same_task_blocks"] == 2,
-          "was %s, now %s" % (stalled, p.private().get("same_task_blocks")))
+          stalled == 1
+          and p.private()["same_task_blocks"] >= 1
+          and st["status"] == "BLOCKED"
+          and "ceiling" in (st.get("blocked_reason") or ""),
+          "was %s, now %s, status=%s reason=%.60s"
+          % (stalled, p.private().get("same_task_blocks"), st["status"], st.get("blocked_reason")))
+    return p
+
+
+@case("a run file that never declared its ceilings does not run at all")
+def _():
+    # The defect this replaced: the spend guard only executes when spend_max > 0,
+    # so a run file with no ceiling skipped the guard AND the fail-closed branch
+    # inside it, and the run went ahead unbounded in silence. Measured on a real
+    # run — three tasks executed with both ceilings at 0, and the only symptom
+    # was a report minutes later that could not say what anything had cost.
+    front = ("status: ACTIVE\ngate: \ncurrent_task: T1\n"
+             "task_started_at: 2000-01-01T00:00:00Z\nblocked_reason:\n")
+    p = Project(frontmatter="---\n" + front + "---\n\n## Tasks\n- [ ] T1 open\n\n## Log\n")
+    p.invoke()
+    st = p.state()
+    check("a run file that never declared its ceilings does not run at all",
+          st["status"] == "BLOCKED"
+          and "task_spend_max_micro_usd" in (st.get("blocked_reason") or "")
+          and "continuations_max" in (st.get("blocked_reason") or ""),
+          "status=%s reason=%.90s" % (st["status"], st.get("blocked_reason")))
+    return p
+
+
+@case("a ceiling someone deliberately set to zero is still honoured")
+def _():
+    # The distinction the guard turns on: an absent key is an incomplete run
+    # file, a zero is a decision a developer approved at plan time. Collapsing
+    # the two would make the guard either useless or unusable.
+    p = Project(tasks="- [ ] T1 open", spend_max=0)
+    p.invoke()
+    st = p.state()
+    check("a ceiling someone deliberately set to zero is still honoured",
+          st["status"] == "ACTIVE",
+          "status=%s reason=%.60s" % (st["status"], st.get("blocked_reason")))
+    return p
+
+
+@case("a ceiling set to zero is announced on every continuation, not left implicit")
+def _():
+    # Honouring the decision is half of it. The other half is that the developer
+    # reading the transcript afterwards should not have to infer an unbounded run
+    # from the absence of a number.
+    p = Project(tasks="- [ ] T1 open", spend_max=0)
+    _code, out = p.invoke()
+    reason = out.get("reason", "") if isinstance(out, dict) else str(out)
+    check("a ceiling set to zero is announced on every continuation, not left implicit",
+          "no spend ceiling" in reason,
+          "the continuation note said: %.100s" % " ".join(reason.split()))
     return p
 
 
