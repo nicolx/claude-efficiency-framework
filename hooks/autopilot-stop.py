@@ -109,6 +109,25 @@ def block(reason):
 
 # ── the run file ─────────────────────────────────────────────────────────────
 
+def unquote(value):
+    """Drop one layer of matching surrounding quotes.
+
+    The frontmatter is read by hand rather than by a YAML parser — there is no
+    dependency to install — and for a long time that reader kept the quotes.
+    `gate: "pytest -q"` therefore reached the shell as a command whose *name*
+    was the whole quoted string, and `/bin/sh` answered "command not found".
+
+    That failure is worse than it sounds. A missing command exits 127, which is
+    indistinguishable from a test suite that failed, so the run did not report an
+    unrunnable gate: it reported a red one, and spent its repair attempts fixing
+    code that was never broken. Measured, and the quoted form is exactly what
+    `templates/efficiency.md` ships.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
 class Run:
     """A run file: `key: value` frontmatter, then a task checklist, then a log.
 
@@ -132,7 +151,7 @@ class Run:
                     k, v = lines[i].split(":", 1)
                     k = k.strip()
                     self.keys.append(k)
-                    self.values[k] = v.strip()
+                    self.values[k] = unquote(v.strip())
             else:
                 raise ValueError("frontmatter is never closed")
         else:
@@ -417,6 +436,15 @@ def main():
             by = breakdown.get("by_model") or {}
             run.set("task_spend_by_model",
                     ", ".join("%s=%s" % (m, v) for m, v in by.items() if v))
+            # A model the table does not price is charged at the fallback, which
+            # is the most expensive row on purpose. That is the safe direction
+            # for a ceiling and the wrong one for a report: it makes the cheap
+            # model look like the expensive one, which is precisely the claim
+            # routing exists to support. Say which ids it happened to, so the
+            # figure can be read as the upper bound it is.
+            unpriced = breakdown.get("unpriced_models") or []
+            if unpriced:
+                run.set("task_spend_unpriced_models", ", ".join(unpriced))
         run.save()
         if spent >= spend_max:
             priv.block_run(run, "%s reached its spend ceiling (%s of %s) without closing. "

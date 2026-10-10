@@ -490,6 +490,56 @@ fourth ran under a permission mode that denied the writes the skills exist to pe
 fixed a defect named in a transcript. None of them was a nudge to make a number look better — which
 is the only thing separating a probe from a wish.*
 
+## 15. A run really does route, and what that costs is harder to know than it looks
+
+Model routing is this framework's headline contribution and had never been watched working.
+Measured **2026-10-10** on **2.1.296** with `scripts/probes/run-routing.sh`: a scaffolded project,
+three tasks across two tiers, a real gate, driven headlessly end to end.
+
+The session delegated, in order:
+
+```text
+efficiency:implementer-fast     task 1 — routine, haiku
+efficiency:reviewer             task 2 — sensitive, reviewed
+efficiency:implementer-fast     task 3 — routine, haiku
+```
+
+Three tasks closed, gate green, the run file left honest, and `/efficiency:run-report` opened with
+`DONE` and listed each autonomous decision. The claim holds.
+
+### The spend figure from that run is an upper bound, not a cost
+
+The run recorded `task_spend_micro_usd: 1760614` — $1.76, 88% of its $2.00 ceiling, for three
+trivial edits. That number is wrong, and the way it was wrong matters more than the number.
+
+The transcripts named `claude-sonnet-5-5`, `claude-haiku-5-5` and `claude-opus-5-5`. **None of the
+three was in the cost table**, so all three were priced at the fallback — which is deliberately the
+most expensive row, so that an unknown model can never quietly raise a ceiling. Safe for a guard;
+backwards for a report. A Haiku subagent charged at top-tier rates reads as roughly five times what
+it cost, and the per-model split that `run-report` printed so confidently was three different models
+at one wrong price.
+
+The sting is where it lands: the framework's whole argument is that routing cheap work to a cheap
+model saves money. Mis-pricing the cheap model as the expensive one erases exactly the saving it
+exists to demonstrate. `CLAUDE.md` already names this failure — dated ids priced as the fallback —
+as one of the two worst bugs found in this project. It came back, because the table knew nothing of
+the 5-5 generation, and `scripts/qa.sh` could not see it: the table was internally consistent and
+recently dated, which is all the gate ever checked.
+
+Two things changed as a result. `claude-opus-5-5` and `claude-sonnet-5-5` are now priced. And the
+fallback is no longer silent — `hooks/lib/spend.py` returns the ids it could not price, the hook
+writes them to `task_spend_unpriced_models`, and `skills/run-report/SKILL.md` requires the report to
+say so before showing any table.
+
+`claude-haiku-5-5` is still unpriced here, because this repo's pricing source does not list it, and
+inventing a number to make a figure look finished is the thing this document exists to prevent. Until
+it is priced, any run that touches Haiku reports a ceiling, not a cost.
+
+*Measured 2026-10-10 on Claude Code 2.1.296. The first attempt measured nothing: the run file was
+hand-written without `task_spend_max_micro_usd`, so `spend_max` seeded to 0 and the entire spend
+guard — including its fail-closed branch — never executed. A run file missing its ceilings has no
+ceilings, silently, and the symptom surfaces minutes later and somewhere else.*
+
 ## Re-running these measurements
 
 ```bash

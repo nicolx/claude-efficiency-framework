@@ -35,6 +35,17 @@ keys into the run file every time it checks the ceiling:
 - `task_spend_micro_usd` — the total since the current task opened;
 - `task_spend_by_model` — the same split per model, as `model=micro_usd` pairs.
 
+A third key appears only when something went wrong with the measurement:
+
+- `task_spend_unpriced_models` — ids the cost table did not know, which were
+  therefore charged at the fallback rate. The fallback is the most expensive row
+  in the table, chosen so a ceiling is never raised by accident. For a *report*
+  that is the wrong direction: a Haiku subagent priced as the top model reads as
+  five times what it cost, which makes routing look like it achieved nothing.
+  **If that key is present, say so before the table**, give the total as an upper
+  bound rather than a figure, and name the ids — the fix is a line in the cost
+  table, and nobody can make it if the report hides the problem.
+
 Divide by 1000000 for dollars. Both come from the session transcript, **subagent
 transcripts included** — those live in a sibling directory and are usually the
 expensive half, so a figure that ignored them would flatter the routing exactly

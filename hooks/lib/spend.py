@@ -63,11 +63,25 @@ def normalise_model(model):
     return DATE_SUFFIX.sub("", model.split("[", 1)[0])
 
 
-def price_for(costs, model):
+def price_for(costs, model, unpriced=None):
+    """The price row for a model id, or the fallback — and a record of which.
+
+    The fallback is the most expensive model in the table, deliberately: a
+    measurement that guessed low would raise a ceiling nobody chose. But it was
+    silent, and silence is the problem. A real run routed to three models whose
+    ids had all moved a generation; every one of them was priced as the
+    fallback, and the report read out a confident per-model split that was three
+    different models at one wrong price.
+
+    So the caller is told. An unpriced id does not make the figure useless — it
+    makes it an upper bound that has to say so.
+    """
     models = costs["models"]
     bare = normalise_model(model)
     if bare and bare in models:
         return models[bare]
+    if unpriced is not None and bare:
+        unpriced.add(bare)
     return models[costs["default"]]
 
 
@@ -122,6 +136,7 @@ def main(argv):
 
     transcript, since_raw, costs_path = argv[1], argv[2], argv[3]
     by_model = "--by-model" in argv[4:]
+    unpriced = set()
 
     since = parse_ts(since_raw)
     if since is None:
@@ -170,12 +185,14 @@ def main(argv):
                 continue
 
             model = normalise_model(message.get("model"))
-            totals[model] = totals.get(model, 0.0) + line_cost(usage, price_for(costs, model))
+            totals[model] = totals.get(model, 0.0) + line_cost(
+                usage, price_for(costs, model, unpriced))
 
     if by_model:
         print(json.dumps(
             {"total_micro_usd": round(sum(totals.values()) * MICRO),
-             "by_model": {k or "unknown": round(v * MICRO) for k, v in sorted(totals.items(), key=lambda kv: -kv[1])}},
+             "by_model": {k or "unknown": round(v * MICRO) for k, v in sorted(totals.items(), key=lambda kv: -kv[1])},
+             "unpriced_models": sorted(unpriced)},
             indent=2))
     else:
         print(round(sum(totals.values()) * MICRO))

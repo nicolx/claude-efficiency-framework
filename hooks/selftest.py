@@ -609,6 +609,50 @@ def _():
     return p
 
 
+@case("a gate wrapped in quotes still runs, instead of reading as a red gate")
+def _():
+    # The frontmatter is parsed by hand, and for a long time the quotes came with
+    # the value: `gate: "pytest -q"` reached the shell as a command whose name was
+    # the whole quoted string. A missing command exits 127, which is
+    # indistinguishable from a failing suite, so the run did not report an
+    # unrunnable gate — it reported a red one and spent its repair attempts fixing
+    # code that was never broken. The quoted form is what templates/efficiency.md
+    # ships, so this is the default path and not an edge.
+    #
+    # Two things about this case are deliberate, and both were got wrong first.
+    #
+    # The gate must take ARGUMENTS. `sh -c '"true"'` succeeds, because the shell
+    # strips the quotes around a single word itself — a one-word gate cannot
+    # detect the defect at all. A real gate looks like `python3 -m compileall -q
+    # src`, and quoted it becomes the name of a five-word command that no shell
+    # can find.
+    #
+    # The observable must be `gate_retries`, not `status`. A red gate is retried
+    # before it blocks, so the run is still ACTIVE either way and an assertion on
+    # status passes with the defect fully present.
+    results = {}
+    p = None
+    for label, gate in (("double", '"test 1 = 1"'), ("single", "'test 1 = 1'"), ("bare", "test 1 = 1")):
+        p = Project(tasks="- [ ] T1 open", gate=gate)
+        p.invoke()
+        results[label] = p.private().get("gate_retries")
+    check("a gate wrapped in quotes still runs, instead of reading as a red gate",
+          all(v == 0 for v in results.values()),
+          "gate_retries by quoting: %s — anything above 0 means the gate never ran" % results)
+    return p
+
+
+@case("a gate that genuinely fails is still caught once the quotes are gone")
+def _():
+    # The other half: stripping the quotes must not make every gate look green.
+    p = Project(tasks="- [ ] T1 open", gate='"test 1 = 2"')
+    p.invoke()
+    check("a gate that genuinely fails is still caught once the quotes are gone",
+          p.private().get("gate_retries", 0) > 0,
+          "gate_retries=%s" % p.private().get("gate_retries"))
+    return p
+
+
 @case("raising continuations_max in the run file buys nothing")
 def _():
     p = Project(tasks="- [ ] T1 open").seed_private(continuations_used=5, continuations_max=5)
@@ -619,6 +663,25 @@ def _():
     check("raising continuations_max in the run file buys nothing",
           "decision" not in out and st["status"] == "BLOCKED" and "5" in st["blocked_reason"],
           "status=%s reason=%.70s" % (st["status"], st["blocked_reason"]))
+    return p
+
+
+@case("a model the cost table does not know is named, not silently absorbed")
+def _():
+    # The fallback is the most expensive row on purpose: a ceiling must never be
+    # raised by a model nobody priced. But it used to be silent, and a real run
+    # routed to three ids that had all moved a generation — every one priced as
+    # the fallback, and the report read out a confident per-model split that was
+    # three different models at one wrong price. The cheap implementer looked
+    # like the expensive one, which is the exact claim routing exists to make.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10**9)
+    p.write_transcript([("claude-not-a-real-model-9",
+                         {"input_tokens": 1000, "output_tokens": 1000}, "2026-01-01T00:00:00Z")])
+    p.invoke()
+    named = p.state().get("task_spend_unpriced_models", "")
+    check("a model the cost table does not know is named, not silently absorbed",
+          "claude-not-a-real-model-9" in named,
+          "task_spend_unpriced_models=%r" % named)
     return p
 
 

@@ -10,6 +10,46 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 - **Minor** — a new skill, a new agent, a new policy key with a safe default
 - **Patch** — corrections, clarifications, price-table refreshes
 
+## [0.16.0] — 2026-10-10
+
+### Fixed — a quoted gate never ran, and the framework read that as failing tests
+
+`gate: "pytest -q"` is the form `templates/efficiency.md` ships. The run file is parsed by hand, and
+that parser kept the quotes, so the shell received a command whose *name* was the whole quoted
+string. A missing command exits 127, which is indistinguishable from a suite that failed — so the run
+did not report an unrunnable gate. It reported a red one, and spent its repair attempts fixing code
+that was never broken.
+
+Found by running a real run and reading its log, not by review. One layer of matching quotes is now
+stripped, and two selftest cases hold it: the passing case uses a gate **with arguments**, because
+`sh -c '"true"'` succeeds — the shell strips quotes around a single word itself, so a one-word gate
+cannot detect the defect at all. The first version of the test used `"true"` and passed with the bug
+fully present.
+
+### Fixed — the cheap model was being priced as the most expensive one
+
+A real run routed to `claude-sonnet-5-5`, `claude-haiku-5-5` and `claude-opus-5-5`. **None was in the
+cost table.** All three were charged at the fallback, which is deliberately the most expensive row so
+that an unknown model can never quietly raise a ceiling — safe for a guard, backwards for a report.
+A Haiku subagent priced at top-tier rates reads as about five times what it cost, which erases the
+exact saving routing exists to demonstrate.
+
+`claude-opus-5-5` and `claude-sonnet-5-5` are now priced from the `claude-api` skill's table. More
+importantly the fallback is no longer silent: `hooks/lib/spend.py` returns the ids it could not
+price, the hook writes them to a new `task_spend_unpriced_models` key, and `/efficiency:run-report`
+must say so before showing any spend table. `claude-haiku-5-5` is still unpriced, because this repo's
+source does not list it and inventing a number to make the figure look finished is the thing the
+measurement discipline exists to prevent.
+
+### Added — routing has been watched working
+
+`scripts/probes/run-routing.sh` drives a real run end to end and reads which `Task` calls it made.
+Measured: `implementer-fast` → `reviewer` → `implementer-fast`, three tasks closed, gate green,
+`run-report` opening with `DONE`. The framework's headline claim is no longer only a design.
+
+Section 15 of `docs/verified-platform-behaviour.md` has the method, the numbers and why the dollar
+figure from that run is an upper bound rather than a cost.
+
 ## [0.15.0] — 2026-10-10
 
 ### Added — the headline assumption, measured at last: skills are reached by what they do
