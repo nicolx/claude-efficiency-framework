@@ -12,6 +12,8 @@ Added: **2026-10-10** · Claude Code **2.1.296** — § 12, the status line.
 Corrected: **2026-10-10** · Claude Code **2.1.296** — § 9 **rewritten**: the refusal is real, but it
 is governed by the permission mode, not by the tool, and it does not hold in all four.
 Added: **2026-10-11** · Claude Code **2.1.296** — § 17, stopping a turn from the inside.
+Re-measured: **2026-10-11** · Claude Code **2.1.296** — § 2 **re-run against the real autopilot** and
+extended, § 3 row A2 and § 4 confirmed. The probe the original measurement never committed now exists.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -45,11 +47,12 @@ for this event.
 
 *Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
 
-## 2. `stop_hook_active`
+## 2. `stop_hook_active`, and whether a project's own Stop hook coexists
 
 `false` on the first invocation of a turn chain, `true` on every one after it. It marks "a Stop hook
 has already blocked in this chain", and it is shared across all registered `Stop` hooks — it is not
-per-hook state.
+per-hook state. With two hooks registered, both read the identical series, invocation for
+invocation: `False,True,True,True,True,True,True,True,True`.
 
 **But sharing the flag does not mean the hooks interfere.** Measured with two hooks registered on
 the same event, both always blocking: each was invoked on every single turn, and neither was skipped
@@ -58,8 +61,44 @@ because the other had already blocked. The flag is information, not a lock. A ho
 which is why this framework's autopilot deliberately ignores it and bounds itself with counters it
 owns instead.
 
-*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`), and extended the same day by the
-two-hook coexistence run in `dfa61e0`. Not re-measured since — see the backlog.*
+**Re-measured against the real autopilot, not two stand-ins.** The September run registered two
+identical always-blocking hooks, which proves the platform's behaviour and nothing about this
+framework's. The 2026-10-11 run drives the *shipped* `autopilot-stop.py` against an unfinishable run
+with a project quality-gate hook blocking beside it on every turn:
+
+| | measured |
+|---|---|
+| invocations, autopilot / neighbour | **10 / 10**, in lockstep |
+| guard 4 stopped the run at | **block 6** — the same number as with no neighbour (§ 3) |
+| `continuations_used` in `.efficiency/autopilot.json` | 1, 2, 3, 4, 5 — **once per turn, not twice** |
+
+The private-state rewrite did not change the picture. That third row is the one the rewrite put in
+question: the counters moved out of the run file, and a neighbour invoking the Stop event alongside
+us could plausibly have double-counted the budget. It does not.
+
+**Both reasons reach the model, and both are acted on.** The neighbour's block reason asks for one
+observable act. It was carried out on 9 of the 10 turns — while the run went on being worked, and
+while guard 4 counted to exactly 5. A competing instruction from a project's own hook does not
+displace the autopilot's, which matters because the block reason is the only instruction the model
+reliably reads on a continuation.
+
+**But stopping a run does not end a session.** After guard 4 stopped the run at block 6 the autopilot
+stood down — `status: BLOCKED`, counter frozen at 5, no further blocks from it — and the session
+carried on for four more turns, because the neighbour was still blocking. It ended on `--max-turns`,
+**not** on the platform's cap: the model made a tool call each turn carrying out the neighbour's
+instruction, and any tool call resets the cap's counter (§ 3). In an adopting project that is the
+neighbour's loop to break and not the autopilot's — a hook cannot un-block another hook, and trying
+would be the wedging that rule 2 forbids — but it is worth knowing that `status: BLOCKED` in the run
+file does not mean the session has stopped. The developer does get the stop reason, so the tail is
+not silent; it is simply not bounded by anything of ours. The whole 25-turn session cost $0.0141,
+which is the only reason this is a note rather than a defect.
+
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`), extended the same day by the two-hook
+coexistence run in `dfa61e0` — which committed no probe, so for five weeks the claim could not be
+re-derived. Re-measured 2026-10-11 on Claude Code 2.1.296 by
+`bash scripts/probes/stop-coexistence.sh`, which is that missing probe: `cap` mode reproduces the
+September figure of 9 invocations each, `autopilot` mode is the table above, run twice with identical
+numbers.*
 
 ## 3. The block cap — and the condition that governs it
 
@@ -70,6 +109,7 @@ This is the finding that decides how much autonomy is actually available, and th
 |---|---|---|---|
 | A | Replied with text only, no tool calls | **9** | the platform cap |
 | A2 | Same, but with **two** blocking hooks registered | **9 each** | the platform cap, shared |
+| A2' | A2 re-run on 2.1.296, 2026-10-11 | **9 each** | unchanged |
 | B | Wrote one file per turn | **20** | our own `--max-turns 40` |
 | C | Wrote one file per turn | **6** | our own `--max-turns 12` |
 | D | Ran one read-only `echo` per turn | **20** | our own `--max-turns 40` |
@@ -90,7 +130,10 @@ with `--max-turns 12`. The finding the whole design rests on survived the upgrad
 **The cap counts blocked turns, not blocks.** With two hooks both blocking on every turn, each was
 invoked **9 times** — the same total as one hook alone. Two hooks blocking together therefore consume
 *one* of the eight occasions, not two. A project's own quality gate and this autopilot can coexist
-without dividing the budget between them.
+without dividing the budget between them. **Re-measured 2026-10-11 on 2.1.296 and unchanged** — by
+`scripts/probes/stop-coexistence.sh`, which is also where the coexistence evidence now lives (§ 2).
+Until that date row A2 rested on an uncommitted September run while sitting under this section's
+2026-10-10 provenance line, which covered the stall and read modes only.
 
 **Consequence for this framework.** The platform will not cut a working autopilot short, so the
 limits that matter are our own — the per-task spend ceiling, the gate retry limit, and the
@@ -115,6 +158,11 @@ with the framework's reason, matching the offline number exactly.
 
 **Two blocks of margin, and they are the whole point.** Raise `STALL_STOP` past 7 and a stalled run
 still stops, but the platform gets there first and stops it without saying why.
+
+**The margin was measured with one hook registered, and it survives a second.** If the cap ever
+started counting blocks rather than turns, a project's own Stop hook blocking alongside the autopilot
+would halve the margin and the platform would stop the run first, silently. It does not: with a
+neighbour blocking on every turn, guard 4 still fires at block 6 (§ 2).
 
 **The margin only holds if the counter cannot be reset by the model.** Until 0.18.1 guard 4 also
 required `current_task` to have stayed put — a field the model writes, and which the block reason
@@ -142,7 +190,10 @@ Confirmed by the probes: a `Stop` hook blocks by printing to stdout
 
 and exiting **0**. The `reason` reaches the model and the turn continues.
 
-*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Still true on 2.1.296 (2026-10-11): both
+hooks in `scripts/probes/stop-coexistence.sh` block through this contract, and the neighbour's reason
+was demonstrably acted on — which is the only way to show the reason arrived, rather than assuming
+it from the turn continuing.*
 
 ## 5. Spend and turn limits
 

@@ -12,6 +12,52 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 
 ## [Unreleased]
 
+### Added — the coexistence measurement had no probe, for five weeks
+
+Repo-internal: `scripts/probes/` and `docs/` only, so no consumer session behaves differently and
+`VERSION` does not move.
+
+Two claims in `docs/verified-platform-behaviour.md` rested on a single run from 2026-09-05
+(`dfa61e0`) — that a project's own `Stop` hook and the autopilot are each invoked on every turn, and
+that the platform's cap counts blocked **turns** rather than blocks, so two hooks blocking together
+consume one of the eight occasions instead of two. That commit changed `CHANGELOG.md` and the
+document. It committed no probe. Rule 1 says a number nobody can re-derive becomes folklore at the
+next release; this one had five weeks and a state rewrite to do it in.
+
+The rewrite is why it mattered. The counters moved out of the run file and into
+`.efficiency/autopilot.json`, and a neighbouring hook firing on the same event could plausibly have
+double-counted the budget. Worse, § 3's margin — guard 4 stops a stalled run at block 6, two inside
+the platform's 8 — was measured with **one** hook registered. If the cap had started counting blocks,
+an adopter with their own `Stop` hook would lose that margin and the platform would stop their run
+first, silently.
+
+`scripts/probes/stop-coexistence.sh` is the missing probe, in two modes: `cap` reproduces the
+September setup with two stand-in hooks, and `autopilot` drives the **shipped** hook against an
+unfinishable run with a project quality-gate hook blocking beside it on every turn.
+
+Nothing had changed, which is the honest and the expected outcome — the deliverable is that it can
+now be re-derived in two minutes and a cent. On 2.1.296: 9 invocations each in `cap` mode, matching
+September; 10 / 10 in lockstep in `autopilot` mode; guard 4 still firing at block 6 with a neighbour
+present; and `continuations_used` advancing 1, 2, 3, 4, 5 — once per turn, not twice.
+
+Two things the September run did not look at, now recorded in § 2:
+
+- **Both block reasons reach the model and both are acted on.** The neighbour's reason asked for one
+  observable act and got it on 9 of 10 turns, while the run went on being worked and guard 4 counted
+  to exactly 5. A project's hook does not displace the instruction the autopilot depends on.
+- **Stopping a run does not end a session.** After guard 4 stopped the run the autopilot stood down
+  — `status: BLOCKED`, counter frozen — and the session carried on four more turns because the
+  neighbour kept blocking, ending on `--max-turns` rather than on the platform's cap, since the
+  neighbour's instruction was a tool call and any tool call resets that counter. This is the
+  neighbour's loop and not the autopilot's: a hook cannot un-block another hook, and trying would be
+  the wedging rule 2 forbids. But `status: BLOCKED` in the run file does not mean the session has
+  stopped, and that was nowhere written down.
+
+Also corrected: § 3's two-hook row sat under a 2026-10-10 provenance line that covered the stall and
+read modes only, so a September figure was reading as a fresh one. It now carries its own date, and
+§ 4's blocking contract is confirmed on 2.1.296 by the one evidence that actually shows a `reason`
+arrived — the model acting on it — rather than inferring it from the turn continuing.
+
 ### Fixed — the install check validated a disk no consumer has
 
 Repo-internal, same as below: `scripts/` only, and `VERSION` does not move.
