@@ -390,7 +390,9 @@ this order:
 2. **The per-task spend ceiling.** Default 20% of your declared basket, measured from the session
    transcript in dollars at API list prices — **subagents included**, since delegating review to an
    expensive model is the point. It catches the case the others miss: one task that keeps looking
-   productive and never closes. It stops that task and asks you, and the session stays alive.
+   productive and never closes. It stops that task and asks you, and the session stays alive. The
+   window it measures opens when a task is *closed*, not when `current_task` is rewritten: the model
+   writes that line, and a ceiling it can reopen is not a ceiling.
 3. **The gate retry budget.** Repair attempts on the same red gate.
 4. **The continuation budget.** For the run as a whole.
 5. **The stall guard.** If the same task is handed back repeatedly with nothing closing, the wording

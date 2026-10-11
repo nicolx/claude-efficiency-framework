@@ -32,6 +32,43 @@ people learn to skip. Where `claude` is absent — CI — the comparison is skip
 so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
 under a client that never did.
 
+## [0.18.2] — 2026-10-10
+
+### Fixed — the spend ceiling could be reopened by the model, one line at a time
+
+0.18.1 took `current_task` out of the anti-stall guard and deliberately left it in the spend window,
+where following the task is what the window is *for*. That was the wrong call, and the reason is the
+same one: the window opened afresh whenever `current_task` changed, and `current_task` is a line of
+frontmatter the model writes — on the instruction of the block reason itself.
+
+So the ceiling the plan calls "per task" was really "per edit of one line". A model alternating
+between two open tasks — the confusion already measured for guard 4 — restarted the window on every
+block, and every turn before the restart then fell outside it and was measured as nothing. This is
+the one guard that is deliberately fail-closed, the only one that stands between an unattended run
+and real money, and it had a reset the model was being told to press.
+
+The window now opens on the **set of open tasks changing** — the same signature as the stall guard,
+computed once and used by both. A task closing is the only progress signal the model cannot send
+without making progress. The cost is that the window also holds the tail of the turn in which the
+previous task closed: a ceiling that charges slightly too much, which is the safe direction for a
+ceiling.
+
+### Fixed — a run file could declare a spend window that never contained anything
+
+The same guard, two lines above, and found while fixing the first. The hook cannot see a run before
+the first turn boundary, so the first window's start comes from `task_started_at` in the run file —
+frontmatter again. A date in the *future* costs nothing to write and leaves the window empty for the
+rest of the run: spend measures 0 every time, the ceiling never fires, and nothing says so. Rule 2
+says an unmeasured ceiling is not a ceiling; this was worse, because it measured and reported zero.
+
+A declared start is now accepted only if it parses and is not ahead of now; anything else falls back
+to the hook's own clock. A date in the *past* is still taken as written — it widens the window and
+charges the task with more than its own spend, which is wrong in the safe direction, and it is also
+the honest case: the run really did begin before the hook first saw it.
+
+Four selftest cases, each mutation-tested against the restored defect. § 3 of
+`docs/verified-platform-behaviour.md` records the first.
+
 ## [0.18.1] — 2026-10-10
 
 ### Fixed — the anti-stall guard hung off a field the model writes

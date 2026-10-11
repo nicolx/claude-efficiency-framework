@@ -19,7 +19,10 @@ activation pattern Claude Code documents for conditional hooks.
   declared ceilings a run file that never names its ceilings does not run: a
                    ceiling that was never set is not a ceiling. An explicit 0 is
                    a decision and is honoured, but it is announced every turn
-  spend_max        stops a task that keeps looking productive and never closes
+  spend_max        stops a task that keeps looking productive and never closes.
+                   Its window opens when a task is CLOSED, not when the model
+                   rewrites `current_task`: see "the model does not hold its own
+                   leash" below
   gate_retries_max stops repair attempts on the same red gate
   continuations_max stops the run as a whole
   the platform      overrides any Stop hook after 8 consecutive blocks WITHOUT
@@ -298,6 +301,44 @@ def fingerprint(run):
     return hashlib.sha256(statements.encode("utf-8", "replace")).hexdigest()
 
 
+def open_signature(open_tasks):
+    """Identify the *state* of a run: which of its tasks are still open.
+
+    This is the only progress signal the model cannot move without actually
+    making progress — ticking a box is a claim it has to live with, where
+    `current_task` is a line the block reason tells it to rewrite every time.
+    Both the spend window and the stall guard key off this, for that reason.
+    """
+    return hashlib.sha256("\n".join(open_tasks).encode("utf-8", "replace")).hexdigest()
+
+
+def window_start(run):
+    """When a fresh run's first spend window opens.
+
+    Taken from the run file, because the hook does not see the run until the
+    first turn boundary and the work of that first turn has to be inside the
+    window. But `task_started_at` is frontmatter, so the model writes it: a date
+    in the *future* leaves `measure_spend` an empty window for the rest of the
+    run, the ceiling never fires, and nothing says so — a guard that is blind
+    without announcing it, which is exactly what rule 2 forbids.
+
+    A date in the past only widens the window and charges the task with more
+    than its own spend, so it is taken as written: wrong in the safe direction.
+    Unparseable or still ahead of now falls back to now.
+    """
+    from datetime import datetime, timezone
+    declared = (run.get("task_started_at") or "").strip()
+    if not declared:
+        return iso_now()
+    try:
+        when = datetime.fromisoformat(declared.replace("Z", "+00:00"))
+    except ValueError:
+        return iso_now()
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return declared if when <= datetime.now(timezone.utc) else iso_now()
+
+
 # ── the guards ───────────────────────────────────────────────────────────────
 
 def measure_spend(transcript, since, by_model=False):
@@ -394,8 +435,15 @@ def main():
             "gate_retries": 0,
             "gate_retries_max": run.get_int("gate_retries_max", 2),
             "spend_max": run.get_int("task_spend_max_micro_usd", 0),
-            "task_key": run.get("current_task"),
-            "task_started_at": run.get("task_started_at") or iso_now(),
+            # Two keys that hold the same kind of hash and must NOT be collapsed
+            # into one. `task_key` is the open-task set as of when the current
+            # spend window opened, seeded with the real signature so a fresh run
+            # keeps the window start below rather than restarting it at the first
+            # block. `open_tasks_sig` is what the *previous* block saw, seeded
+            # empty so that first block counts as progress and the stall counter
+            # starts at zero — the measured block-6 stop depends on it.
+            "task_key": open_signature(run.open_tasks()),
+            "task_started_at": window_start(run),
             "same_task_blocks": 0,
             "open_tasks_sig": "",
             "blocked": False,
@@ -443,11 +491,23 @@ def main():
         allow_silently()
 
     task = run.get("current_task") or "the current task"
+    remaining = run.open_tasks()
+    open_sig = open_signature(remaining)
 
-    # The hook owns the spend window, so the model has one fewer lever: it signals
-    # progress by changing current_task, and the window follows.
-    if priv.get("task_key") != task:
-        priv.set("task_key", task)
+    # The hook owns the spend window, and until 0.18.2 it opened a fresh one
+    # whenever `current_task` changed — a field the model writes, and which the
+    # block reason below explicitly tells it to write on every task it closes.
+    # So the ceiling the plan calls "per task" was really "per edit of one line
+    # of frontmatter": a model alternating between two open tasks, the confusion
+    # already measured in guard 4, reopened a clean window on every block and
+    # could spend the whole ceiling again each time.
+    #
+    # Rule 3 again: the window follows the one signal the model cannot fake,
+    # which is a task closing. The cost is that the window now also holds the
+    # tail of the turn in which the previous task closed — a ceiling that
+    # charges slightly too much, which is the safe direction for a ceiling.
+    if priv.get("task_key") != open_sig:
+        priv.set("task_key", open_sig)
         priv.set("task_started_at", iso_now())
         priv.save()
 
@@ -533,7 +593,6 @@ def main():
             run.save()
 
     # ── continue, or finish ──────────────────────────────────────────────────
-    remaining = run.open_tasks()
     if not remaining:
         priv.set("blocked", False)
         priv.save()
@@ -558,10 +617,9 @@ def main():
     # tasks reset this guard on every single block and the run was bounded only
     # by continuations_max, forty blocks away. Rule 3: the leash cannot hang off
     # a field the model holds. Closing a task is the one progress signal it
-    # cannot fake without actually making progress.
+    # cannot fake without actually making progress — which is why, as of 0.18.2,
+    # the spend window keys off this same signature, computed once above.
     open_now = len(remaining)
-    open_sig = hashlib.sha256(
-        "\n".join(remaining).encode("utf-8", "replace")).hexdigest()
     same = priv.get_int("same_task_blocks", 0)
     if priv.get("open_tasks_sig") == open_sig:
         same += 1

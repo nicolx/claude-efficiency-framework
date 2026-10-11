@@ -121,6 +121,13 @@ explicitly tells it to write when a task is done. A model moving it *without* cl
 the guard on every block: measured at 12 blocks and still going, bounded only by `continuations_max`
 at 40. Progress is now a task closing and nothing else.
 
+The same lever reached further than guard 4. Until 0.18.2 the **per-task spend window** also reopened
+on `current_task`, so the same alternation bought a fresh ceiling on every block — the one guard that
+is deliberately fail-closed, reset by the field the block reason asks the model to rewrite. Both now
+key off the same signature of the open-task set, computed once. Offline: the run below spends $0.50 a
+block against a $1.20 ceiling while flipping `current_task`, and stops on the third block rather than
+never.
+
 *Measured 2026-10-10 on Claude Code 2.1.296. Offline half: `python3 hooks/autopilot-stop.py
 --selftest`. Live half: `bash scripts/probes/stall-ordering.sh`.*
 

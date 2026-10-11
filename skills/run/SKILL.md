@@ -31,8 +31,10 @@ whole design is arranged to prevent.
 ## For each task, in order
 
 1. **Mark it started.** Set `current_task` to this task's id — and nothing else in
-   the frontmatter. The hook owns the spend window and opens a fresh one as soon
-   as `current_task` changes, so that one field is the whole signal.
+   the frontmatter. It names the task in everything the hook reports; it does not
+   move any counter. The hook owns the spend window and opens a fresh one when a
+   task is **closed**, so the window for this task is everything spent since the
+   previous one was ticked.
 2. **Route it.** Read the tier and the model from the task line, and delegate
    accordingly:
    - `haiku` → the `efficiency:implementer-fast` agent, for work that is fully specified

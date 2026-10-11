@@ -154,16 +154,22 @@ class Project:
         run, precisely so a rewrite of that frontmatter cannot touch them.
         """
         import hashlib
-        statements = "\n".join(
-            l.split("]", 1)[1].strip()
-            for l in open(self.run_path, errors="replace").read().split("\n")
-            if l.strip().startswith("- [")
-        )
+        lines = [l.strip() for l in open(self.run_path, errors="replace").read().split("\n")
+                 if l.strip().startswith("- [")]
+        statements = "\n".join(l.split("]", 1)[1].strip() for l in lines)
+        # The open-task signature, by the same rule the hook uses. Seeding it is
+        # what makes `task_started_at` below mean "a window already open since
+        # then": seed anything else and the hook reads a closure that never
+        # happened, reopens the window at now, and every transcript the case
+        # wrote falls outside it.
+        open_sig = hashlib.sha256("\n".join(
+            l.split("]", 1)[1].strip() for l in lines
+            if l[3:4].lower() != "x").encode()).hexdigest()
         state = {
             "fingerprint": hashlib.sha256(statements.encode()).hexdigest(),
             "continuations_used": 0, "continuations_max": 40,
             "gate_retries": 0, "gate_retries_max": 2, "spend_max": 0,
-            "task_key": "T1", "task_started_at": "2000-01-01T00:00:00Z",
+            "task_key": open_sig, "task_started_at": "2000-01-01T00:00:00Z",
             "same_task_blocks": 0, "open_tasks_sig": "",
             "blocked": False, "blocked_reason": "",
         }
@@ -546,6 +552,52 @@ def _():
     return p
 
 
+@case("a window the run file dates in the future would never measure anything")
+def _():
+    # `task_started_at` is frontmatter, so the model writes it, and the hook
+    # takes it as the start of the first window — it cannot see the run before
+    # the first turn boundary, and the work of that turn has to be inside. A
+    # date in the future costs nothing to write and silently empties the window
+    # for the rest of the run: spend measures 0 forever and the ceiling, the one
+    # guard that is deliberately fail-closed, never fires once.
+    #
+    # The turn below is stamped a minute from now, so it lands inside any window
+    # that starts at the fallback and outside one that starts in 2099. $5 of
+    # Opus against a $1 ceiling: the guard fires, or the lever is still there.
+    from datetime import datetime, timedelta, timezone
+    soon = (datetime.now(timezone.utc) + timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    p = Project(tasks="- [ ] T1 open", started="2099-01-01T00:00:00Z",
+                spend_max=1_000_000)
+    p.write_transcript([("claude-opus-5", {"input_tokens": 1_000_000, "output_tokens": 0}, soon)])
+    code, out = p.invoke()
+    st = p.state()
+    check("a window the run file dates in the future would never measure anything",
+          p.private()["task_started_at"] != "2099-01-01T00:00:00Z"
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "seeded=%s status=%s reason=%.60s"
+          % (p.private().get("task_started_at"), st["status"], st["blocked_reason"]))
+    return p
+
+
+@case("a window dated in the past is taken as written: it only charges more")
+def _():
+    # The other direction is not symmetrical and must not be treated as such. An
+    # early start widens the window and charges this task with spend that was
+    # not its own — too strict, never too lax — and it is also the honest case:
+    # the run really did begin before the hook first saw it.
+    p = Project(tasks="- [ ] T1 open", started="2026-01-01T00:00:00Z",
+                spend_max=10_000_000)
+    p.write_transcript([("claude-opus-5", {"input_tokens": 200_000, "output_tokens": 0},
+                         "2026-01-02T00:00:00Z")])
+    p.invoke()
+    check("a window dated in the past is taken as written: it only charges more",
+          p.private()["task_started_at"] == "2026-01-01T00:00:00Z"
+          and int(p.state()["task_spend_micro_usd"]) == 1_000_000,
+          "seeded=%s spend=%s" % (p.private().get("task_started_at"),
+                                  p.state().get("task_spend_micro_usd")))
+    return p
+
+
 # ── 5. the stall guard ───────────────────────────────────────────────────────
 # Every case here exists because of one measured failure: 12 blocks on the same
 # task, its work finished, the box never ticked, and the last continuations spent
@@ -873,17 +925,55 @@ def _():
     return p
 
 
-@case("the hook owns the spend window, so moving to the next task resets it")
+@case("the hook owns the spend window, and CLOSING a task opens a fresh one")
 def _():
-    p = Project(tasks="- [x] T1 done\n- [ ] T2 open").seed_private(
-        task_key="T1", task_started_at="2000-01-01T00:00:00Z", spend_max=10_000_000)
-    text = p.raw().replace("current_task: T1", "current_task: T2")
+    # spend_max=0 so the ceiling is out of the way: the window is opened before
+    # the guard that reads it, and this case is about the window alone.
+    p = Project(tasks="- [ ] T1 open\n- [ ] T2 open").seed_private(
+        task_started_at="2000-01-01T00:00:00Z", spend_max=0)
+    p.invoke()
+    carried = p.private()["task_started_at"]
+    text = p.raw().replace("- [ ] T1 open", "- [x] T1 open")
     open(p.run_path, "w").write(text)
     p.invoke()
-    started = p.private()["task_started_at"]
-    check("the hook owns the spend window, so moving to the next task resets it",
-          started != "2000-01-01T00:00:00Z" and p.private()["task_key"] == "T2",
-          "task_key=%s started=%s" % (p.private().get("task_key"), started))
+    check("the hook owns the spend window, and CLOSING a task opens a fresh one",
+          carried == "2000-01-01T00:00:00Z"
+          and p.private()["task_started_at"] != "2000-01-01T00:00:00Z",
+          "carried=%s then=%s" % (carried, p.private().get("task_started_at")))
+    return p
+
+
+@case("alternating current_task cannot buy a second spend ceiling")
+def _():
+    # The sibling of the stall case above, and the one that costs money. Until
+    # 0.18.2 the spend window reopened whenever `current_task` changed — the
+    # field the block reason tells the model to rewrite — so a model alternating
+    # between two open tasks restarted the window on every block and could spend
+    # the whole ceiling again each time. Every turn before the restart then fell
+    # outside the new window and was measured as nothing.
+    #
+    # Here the run spends $0.50 per block against a $1.20 ceiling. Keyed on the
+    # open tasks, the window holds all of it and the guard fires on the third.
+    # Keyed on `current_task`, every block measured 0 and this ran forever.
+    spent = []
+
+    def flip_and_spend(p):
+        now = p.state()["current_task"]
+        text = p.raw().replace("current_task: " + now,
+                               "current_task: " + ("T2" if now == "T1" else "T1"))
+        open(p.run_path, "w").write(text)
+        spent.append(("claude-opus-5", {"input_tokens": 100_000, "output_tokens": 0},
+                      "2026-01-01T00:00:%02dZ" % len(spent)))
+        p.write_transcript(spent)
+
+    p = Project(tasks="- [ ] T1 open\n- [ ] T2 open").seed_private(
+        task_started_at="2000-01-01T00:00:00Z", spend_max=1_200_000)
+    flip_and_spend(p)
+    fired = stall_until_stopped(p, limit=5, between=flip_and_spend)
+    reason = p.state()["blocked_reason"]
+    check("alternating current_task cannot buy a second spend ceiling",
+          fired == 3 and "spend ceiling" in reason,
+          "stopped at block %s, reason=%.90s" % (fired or "never", reason))
     return p
 
 
