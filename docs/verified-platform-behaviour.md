@@ -11,6 +11,7 @@ Re-measured: **2026-10-10** · Claude Code **2.1.289** — § 3 unchanged, § 7 
 Added: **2026-10-10** · Claude Code **2.1.296** — § 12, the status line.
 Corrected: **2026-10-10** · Claude Code **2.1.296** — § 9 **rewritten**: the refusal is real, but it
 is governed by the permission mode, not by the tool, and it does not hold in all four.
+Added: **2026-10-11** · Claude Code **2.1.296** — § 17, stopping a turn from the inside.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -645,6 +646,97 @@ catches it, which is what the `verified` date and its 90-day staleness warning e
 
 *Measured 2026-10-10 on Claude Code 2.1.296. Prices verified the same day against
 `platform.claude.com/docs/en/about-claude/pricing`.*
+
+## 17. A turn can be stopped from the inside, and its spend can be read while it runs
+
+Measured **2026-10-11** on **2.1.296**, with three probes written for this question:
+`scripts/probes/midturn-transcript.sh`, `midturn-deny.sh` and `midturn-subagent.sh`.
+
+Until this was measured the spend ceiling was read exactly once per turn, as the turn ended, because
+`Stop` was the only event this framework knew it could refuse from. A turn has no length limit, so
+the ceiling was absent for precisely the interval in which it can be exceeded. Three facts had to
+hold before a mid-turn guard was worth writing, and none of them is documented.
+
+### The transcript is written as the turn runs
+
+A `PostToolUse` hook counted the transcript on every tool call of a single turn that made three:
+
+| when | rows | rows with `message.usage` |
+|---|---|---|
+| after tool call 1 | 18 | 0 |
+| after tool call 2 | 26 | 1 |
+| after tool call 3 | 32 | 2 |
+| at `Stop` | 36 | 3 |
+
+So spend **is** measurable mid-turn — `hooks/lib/spend.py` needs nothing it does not already have.
+`transcript_path` arrives on `PostToolUse` and on `PreToolUse`, undocumented for both, exactly as it
+is for `Stop` (§ 1).
+
+The lag is the part worth writing down: a reading taken during tool call *n* sees the usage of
+assistant message *n-1*. The message that issued the call being refused has not been written yet. A
+mid-turn ceiling therefore always trails reality by one assistant message, and can only ever be a
+little late — never early, which is the safe direction for a ceiling.
+
+### A `PreToolUse` denial is honoured, and the turn then ends by itself
+
+A hook permitted the first two tool calls of a turn and denied the rest, with the reason a spend
+guard would give. The model had been asked for eight.
+
+Two calls ran. The third was refused and did **not** execute — `PostToolUse` fired twice, never
+three times, which is the only trustworthy evidence that a denial stopped anything. The model then
+stopped, explained that a hook had reported a spend ceiling, and ended its turn without being bound
+by `--max-turns`. It attempted **one** further call after the first refusal, not a stream of them.
+
+The decision that works is the documented shape, emitted on stdout with exit 0:
+
+```json
+{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "…"}}
+```
+
+The reason reaches the model intact: it quoted the ceiling back in its closing report. That matters
+more than it sounds — a refusal the model cannot read is one it narrates as a tool failure and tries
+to work around.
+
+### A subagent's own tool calls reach the hook, carrying the parent's transcript
+
+This is what decides whether a mid-turn ceiling covers the expensive half of a routed run. It does.
+A session was asked to delegate one command to a subagent; the subagent's `Bash` call arrived at the
+parent's `PreToolUse` hook, carrying the parent's `transcript_path` and the parent's `session_id`.
+Nothing has to be mapped or merged: the payload is the one `Stop` already receives, so the same
+measurement — which reads the sibling subagent transcripts of § 6 — applies unchanged, and a
+subagent's call can be refused rather than only the delegation that launched it.
+
+Two incidental findings came out of the same probe, both of which had already broken a draft of it:
+
+- the delegation tool is named **`Agent`** on 2.1.296, not `Task`. A probe matching only `Task`
+  reports "the session never delegated" for a session that delegated perfectly well.
+- **the delegation returns as soon as the subagent is launched.** `PostToolUse` for it fires before
+  the subagent has called anything, so bracketing "calls made while the delegation was outstanding"
+  identifies nothing. The probe distinguishes the two sides by a marker word only the subagent is
+  ever told to run.
+
+### What this costs, and why the guard caches
+
+A hook on `PreToolUse` runs in front of every tool call, so its own cost is a tax on everything.
+Measured on this machine, against transcripts of three sizes:
+
+| transcript | measuring | reusing a measurement |
+|---|---|---|
+| 0.7 MB | 65 ms | 27 ms |
+| 3.3 MB | 131 ms | 29 ms |
+| 9.8 MB | 263 ms | 26 ms |
+
+The measurement is linear in the size of the session — about 25 ms per megabyte — while reusing one
+is flat, and roughly the cost of starting `python3` at all. A long session is exactly where a spend
+ceiling matters, so `hooks/autopilot-pretool.py` caches its last reading for a few seconds rather
+than parsing a growing transcript before every action. The cache window is the real resolution of
+the ceiling: a run can overshoot by whatever it spends inside it.
+
+*Measured 2026-10-11 on Claude Code 2.1.296. The `midturn-subagent.sh` verdict was wrong twice before
+it was right — once on the tool's name and once on the asynchrony above — and both times it reported
+a confident negative. A probe that can only fail by saying "nothing happened" is one to distrust.*
 
 ## Re-running these measurements
 

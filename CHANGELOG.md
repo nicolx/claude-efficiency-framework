@@ -105,6 +105,56 @@ people learn to skip. Where `claude` is absent — CI — the comparison is skip
 so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
 under a client that never did.
 
+## [0.19.0] — 2026-10-11
+
+### Added — the spend ceiling now holds inside the turn, not only at its end
+
+The ceiling was read exactly once per turn, as the turn ended, because `Stop` was the only event
+this framework knew it could refuse from. A turn has no length limit. So the one guard that stands
+between an unattended run and real money was absent for precisely the interval in which it can be
+exceeded, and the README called that a limit — which flattered it: a ceiling checked only after the
+spending is a record, not a ceiling.
+
+`hooks/autopilot-pretool.py` is the other half. It runs on `PreToolUse` and refuses tool calls once
+the ceiling is crossed, so the spending stops where it happens. It delivers no verdict: the `Stop`
+hook still stops the run at the boundary, with the reason a human reads, exactly as before. One
+guard, two halves — the refusal and the verdict.
+
+Three platform facts were measured before any of it was written, because none is documented and each
+one could have ended the idea (`docs/verified-platform-behaviour.md` § 17, three new probes):
+
+- **the transcript is written as the turn runs**, so spend is measurable mid-turn with the meter
+  that already exists. A reading trails by one assistant message — the one that issued the call
+  being refused has not been written yet — so the ceiling is always a little late and never early.
+- **a `PreToolUse` denial is honoured**, and the turn then ends by itself. Measured: two permitted
+  calls ran, the third did not, and the model stopped after one further attempt and reported what it
+  had finished, quoting the ceiling back.
+- **a subagent's own tool calls reach the parent's hook**, carrying the parent's `transcript_path`.
+  The expensive half of a routed run is therefore covered with no special handling, and a subagent's
+  call can be refused rather than only the delegation that launched it.
+
+Two deliberate design choices, both of which read as violations until the reason is stated:
+
+- **It fails open, where the `Stop` hook fails closed.** Rule 2 says an unmeasured ceiling is not a
+  ceiling, and it also says a hook must not stand between a developer and their work. Stopping a run
+  at a boundary still ends the turn; refusing every tool call mid-turn leaves a session in which
+  nothing works. So when the meter is blind here the call is permitted, and the `Stop` hook stops the
+  run at the boundary as it always has. Nothing that was enforced before is enforced less.
+- **It writes no counter.** It reads the ceiling the `Stop` hook captured and never writes
+  `.efficiency/autopilot.json` — a `PreToolUse` hook runs concurrently with itself, and a careless
+  write would clobber the counters the other hook owns. Its own throttle cache lives elsewhere, and
+  the worst a corrupt one can do is cost a redundant measurement or postpone one by seconds.
+
+It costs what starting `python3` costs on a project with no run — one `stat` and nothing more. On an
+active run the measurement is linear in the size of the session, about 25 ms per megabyte, so the
+last reading is reused for a few seconds rather than re-parsing a growing transcript in front of
+every action. That window is the real resolution of the ceiling, and the README says so in place of
+the limit it replaces.
+
+Ten selftest cases, five mutation-tested: the refusal never firing, the ceiling being read from the
+run file the model writes, a cache dated in the future being believed, the first turn of a run left
+unbounded, and the guard writing to the counters it must only read.
+
 ## [0.18.2] — 2026-10-10
 
 ### Fixed — the spend ceiling could be reopened by the model, one line at a time

@@ -22,7 +22,9 @@ activation pattern Claude Code documents for conditional hooks.
   spend_max        stops a task that keeps looking productive and never closes.
                    Its window opens when a task is CLOSED, not when the model
                    rewrites `current_task`: see "the model does not hold its own
-                   leash" below
+                   leash" below. This is the verdict half only — the same ceiling
+                   is also held inside the turn by autopilot-pretool.py, which
+                   refuses tool calls rather than waiting for the boundary
   gate_retries_max stops repair attempts on the same red gate
   continuations_max stops the run as a whole
   the platform      overrides any Stop hook after 8 consecutive blocks WITHOUT

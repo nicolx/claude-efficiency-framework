@@ -398,6 +398,9 @@ this order:
    productive and never closes. It stops that task and asks you, and the session stays alive. The
    window it measures opens when a task is *closed*, not when `current_task` is rewritten: the model
    writes that line, and a ceiling it can reopen is not a ceiling.
+   It is the one guard that also acts **inside** a turn: a second hook refuses tool calls once the
+   ceiling is crossed, instead of waiting for a turn that has no length limit to end. The refusal
+   stops the spending; the stop above still delivers the verdict, at the boundary, as it always did.
 3. **The gate retry budget.** Repair attempts on the same red gate.
 4. **The continuation budget.** For the run as a whole.
 5. **The stall guard.** If the same task is handed back repeatedly with nothing closing, the wording
@@ -450,8 +453,12 @@ documentation:
 - **Permission rules cannot ship in a plugin** — a plugin's `settings.json` accepts only `agent` and
   `subagentStatusLine` — so `/efficiency:init` writes them into your project and reports every line
   it touched. It is the only invasive write the framework makes.
-- **The spend ceiling is checked at turn boundaries**, not mid-turn. One very long turn can overshoot
-  before it is stopped. This is a net against a wasted night, not a meter accurate to the cent.
+- **The spend ceiling is a net against a wasted night, not a meter accurate to the cent.** It is read
+  inside the turn as well as at its end, but not before every single action: the reading is reused
+  for a few seconds, and it trails the session by one assistant message, because the message that
+  issued the call being refused has not been written to the transcript yet. Both were measured
+  (`docs/verified-platform-behaviour.md` § 17), and both make the ceiling a little late — never
+  early, which is the safe direction for a ceiling.
 - **Dollars are a proxy.** On a subscription you spend plan allowance, not dollars. The figure is the
   only common unit a hook can compute, and it moves in proportion.
 - **Model prices go stale.** `hooks/lib/model-costs.json` carries the date it was verified. A stale
@@ -470,8 +477,8 @@ If your project declares a standard, the reviewer applies it too. If not, it sti
 .claude-plugin/   plugin and marketplace manifests
 agents/           implementer-fast (haiku) · architect (opus) · reviewer (opus)
 skills/           init · plan-run · run · fanout · run-report
-hooks/            the autopilot Stop hook, the SessionStart charter, the spend meter,
-                  the backlog status line
+hooks/            the autopilot Stop hook and its mid-turn half, the SessionStart charter,
+                  the spend meter, the backlog status line
 templates/        the policy and permission scaffolding a project owns
 scripts/          this repo's own gate, and the platform probes
 docs/             what was measured, and how to measure it again

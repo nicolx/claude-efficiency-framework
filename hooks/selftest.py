@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Selftest for the autopilot Stop hook.
+"""Selftest for the autopilot hooks — the Stop guard and the mid-turn one.
 
-Run it before trusting the hook with an unattended run:
+Run it before trusting them with an unattended run:
 
     python3 hooks/autopilot-stop.py --selftest
 
@@ -20,6 +20,8 @@ getting it wrong has a specific cost:
   fail-closed      an unmeasured ceiling silently becomes no ceiling
   counter custody  a model that can edit its own leash has no leash
   body preserved   the run log is what the human reads instead of watching
+  mid-turn         a ceiling read only at the turn boundary is not enforced
+                   for the whole interval in which it can be exceeded
 """
 
 import json
@@ -28,9 +30,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "autopilot-stop.py")
+PRETOOL = os.path.join(HERE, "autopilot-pretool.py")
 SESSION_START = os.path.join(HERE, "session-start.py")
 STATUSLINE = os.path.join(HERE, "statusline.py")
 
@@ -224,6 +228,42 @@ class Project:
         if done.stdout.strip():
             out = json.loads(done.stdout.strip().split("\n")[-1])
         return done.returncode, out
+
+    def invoke_pretool(self, tool="Bash"):
+        """Invoke the mid-turn hook with a real PreToolUse payload.
+
+        The payload shape is the measured one (§ 17), not an invented one: a
+        selftest written against a payload the platform does not send proves
+        only that the hook agrees with the test.
+        """
+        payload = {
+            "session_id": "selftest",
+            "cwd": self.dir,
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool,
+            "tool_input": {"command": "echo hi"},
+            "tool_use_id": "selftest-1",
+            "permission_mode": "dontAsk",
+        }
+        if self.transcript:
+            payload["transcript_path"] = self.transcript
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir)
+        done = subprocess.run([sys.executable, PRETOOL], input=json.dumps(payload),
+                              capture_output=True, text=True, env=env, timeout=120)
+        out = {}
+        if done.stdout.strip():
+            out = json.loads(done.stdout.strip().split("\n")[-1])
+        return done.returncode, out
+
+    def decision(self, out):
+        """The permission decision in a PreToolUse reply, or None for silence."""
+        return (out or {}).get("hookSpecificOutput", {}).get("permissionDecision")
+
+    def write_midturn_cache(self, **values):
+        path = os.path.join(self.dir, ".efficiency", "midturn-cache.json")
+        with open(path, "w") as fh:
+            json.dump(values, fh)
+        return path
 
     def state(self):
         text = open(self.run_path, errors="replace").read()
@@ -1557,9 +1597,184 @@ def _():
 
 
 
+# ── 9. the ceiling inside the turn, not only at its end ──────────────────────
+#
+# Everything above is read at a turn boundary. A turn has no length limit, so
+# until 0.19.0 the spend ceiling was unenforced for exactly the interval in
+# which it could be exceeded. These cases cover the PreToolUse half, and the
+# three that matter most are the refusal, the fail-OPEN, and the one proving
+# this hook cannot touch the counters the other one owns.
+
+OVER_CEILING = [("claude-opus-5", {"input_tokens": 100000, "output_tokens": 100000},
+                 "2026-01-01T00:00:00Z")]
+
+
+@case("mid-turn: no run file, permits in silence")
+def _():
+    # The fast path, taken by every tool call of every session in every project
+    # that merely has the plugin installed. It must be silent and it must not
+    # even reach the Stop hook's code.
+    p = Project(run_file=False)
+    code, out = p.invoke_pretool()
+    check("mid-turn: no run file, permits in silence", code == 0 and out == {},
+          "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("mid-turn: under the ceiling, permits in silence")
+def _():
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10**9)
+    p.write_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool()
+    check("mid-turn: under the ceiling, permits in silence", code == 0 and out == {},
+          "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("mid-turn: over the ceiling, REFUSES the tool call")
+def _():
+    # The whole point. Without this the ceiling is a number read once the
+    # spending has already happened.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool()
+    reason = out.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+    check("mid-turn: over the ceiling, REFUSES the tool call",
+          code == 0 and p.decision(out) == "deny" and "ceiling" in reason,
+          "code=%s decision=%s reason=%.70s" % (code, p.decision(out), reason))
+    return p
+
+
+@case("mid-turn: blind, fails OPEN where the Stop hook fails closed")
+def _():
+    # The one place this framework deliberately inverts rule 2, and the reason
+    # is in the asymmetry of the two refusals: the Stop hook stopping a run
+    # still ends the turn, whereas refusing every tool call mid-turn would leave
+    # a session in which nothing works. So an unmeasurable transcript permits
+    # here — and the case directly above, on the same project, shows the Stop
+    # hook still stopping the run at the boundary. Nothing is enforced less.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.transcript = os.path.join(p.dir, "does-not-exist.jsonl")
+    code, out = p.invoke_pretool()
+    permitted = code == 0 and out == {}
+    p.invoke()                      # now let the Stop hook see the same run
+    st = p.state()
+    check("mid-turn: blind, fails OPEN where the Stop hook fails closed",
+          permitted and st["status"] == "BLOCKED" and "measured" in st["blocked_reason"],
+          "mid-turn out=%s · at the boundary status=%s reason=%.50s"
+          % (out, st["status"], st.get("blocked_reason")))
+    return p
+
+
+@case("mid-turn: raising the ceiling in the run file buys nothing")
+def _():
+    # Rule 3, at the one event where a model could plausibly benefit from it:
+    # rewrite the frontmatter mid-turn and keep spending. The captured ceiling
+    # wins, exactly as it does at the boundary.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    # Two steps, not one: `open(path, "w")` truncates before the argument that
+    # reads it is evaluated, so the one-liner silently rewrites the run file to
+    # nothing and the case passes against a hook that does no such thing.
+    raised = p.raw().replace("task_spend_max_micro_usd: 0",
+                             "task_spend_max_micro_usd: 999999999")
+    open(p.run_path, "w").write(raised)
+    code, out = p.invoke_pretool()
+    check("mid-turn: raising the ceiling in the run file buys nothing",
+          p.decision(out) == "deny",
+          "decision=%s — the run file's number was believed over the captured one"
+          % p.decision(out))
+    return p
+
+
+@case("mid-turn: the first turn of a run is bounded too")
+def _():
+    # Before the Stop hook has ever seen a run there is no captured ceiling, and
+    # standing aside would have left the longest turn of most runs — the one
+    # that starts it — as the only unbounded one. There is no loophole in
+    # reading the run file here: nothing has been captured yet to be overridden,
+    # and the developer approved these numbers minutes ago.
+    p = Project(tasks="- [ ] T1 open", spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool()
+    check("mid-turn: the first turn of a run is bounded too",
+          p.decision(out) == "deny", "decision=%s" % p.decision(out))
+    return p
+
+
+@case("mid-turn: a run already stopped is not refused again")
+def _():
+    # Once a guard has stopped the run the developer is very likely driving by
+    # hand. Refusing their tool calls would be this hook enforcing a verdict
+    # that has already been delivered, in the one way rule 2 forbids.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000, blocked=True,
+                                                    blocked_reason="stopped earlier")
+    p.write_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool()
+    check("mid-turn: a run already stopped is not refused again",
+          code == 0 and out == {}, "out=%s" % (out,))
+    return p
+
+
+@case("mid-turn: a subagent's spend counts toward the ceiling")
+def _():
+    # The expensive half of a routed run is the delegated half — 17% of real
+    # spend on the session that produced this framework, and the measurement
+    # reads both transcripts for that reason. A mid-turn guard that priced only
+    # the main session would be a ceiling on the cheap work, and § 17 measured
+    # that a subagent's own tool calls arrive here carrying the parent's
+    # transcript_path, so there is something to refuse.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.write_transcript([("claude-haiku-4-5",
+                         {"input_tokens": 1, "output_tokens": 1},
+                         "2026-01-01T00:00:00Z")])
+    p.subagent_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool()
+    check("mid-turn: a subagent's spend counts toward the ceiling",
+          p.decision(out) == "deny",
+          "decision=%s — the main transcript alone is under the ceiling" % p.decision(out))
+    return p
+
+
+@case("mid-turn: a cached measurement dated in the future is not believed")
+def _():
+    # The cache exists so that the transcript is not re-parsed in front of every
+    # single tool call. It is also the one thing here a model could write. A
+    # future timestamp is the shape that bites: it never expires, so a single
+    # forged line would retire the guard for the rest of the run. This framework
+    # has already been bitten by exactly that, in `task_started_at`.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    p.write_midturn_cache(window="2000-01-01T00:00:00Z",
+                          size=os.path.getsize(p.transcript),
+                          spent=0, at=time.time() + 86400)
+    code, out = p.invoke_pretool()
+    check("mid-turn: a cached measurement dated in the future is not believed",
+          p.decision(out) == "deny",
+          "decision=%s — a forged cache line silenced the ceiling" % p.decision(out))
+    return p
+
+
+@case("mid-turn: the guard writes no counter and no ceiling of its own")
+def _():
+    # It runs concurrently with itself — several tool calls can be in flight —
+    # and it has no business holding the leash. If it ever writes autopilot.json
+    # it can clobber the counters the Stop hook owns, and the Stop hook is the
+    # only thing authorised to move them.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    before = json.dumps(p.private(), sort_keys=True)
+    p.invoke_pretool()
+    p.invoke_pretool()
+    after = json.dumps(p.private(), sort_keys=True)
+    check("mid-turn: the guard writes no counter and no ceiling of its own",
+          before == after, "private state changed under a hook that must only read it")
+    return p
+
+
 def run():
-    print("autopilot-stop selftest")
-    print("hook:  %s" % HOOK)
+    print("autopilot selftest")
+    print("hooks: %s\n       %s" % (HOOK, PRETOOL))
     print("costs: %s\n" % os.path.join(HERE, "lib", "model-costs.json"))
 
     for c in CASES:
