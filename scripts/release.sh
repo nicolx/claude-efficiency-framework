@@ -62,8 +62,11 @@ rm -f /tmp/release-qa.$$
 # here rather than in qa.sh: between releases a populated [Unreleased] is exactly
 # right, and a gate red on it would be red for most of this repo's life.
 bold "== changelog"
+# The message deliberately does not name $TAG: whether that tag is new is not
+# known until step 3, and telling someone to file entries under a tag that
+# already exists is advice that cannot be followed.
 python3 scripts/lib/check-changelog.py \
-    || die "[Unreleased] still has entries. File them under $TAG — they ship in it."
+    || die "[Unreleased] still has entries. File them under the version being cut, then re-run."
 
 # ── 3. the tag must not already exist ───────────────────────────────────────
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
