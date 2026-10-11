@@ -251,7 +251,12 @@ Partly, and it is worth being precise about which part.
 
 **What is guaranteed.** The catalogue pins a release tag rather than tracking `main`, so you get a
 version that was deliberately published and never the middle of someone's refactor. The repo's own
-gate refuses to let a release ship whose tag, `VERSION` and changelog entry disagree.
+gate refuses to let a release ship whose `VERSION`, manifests and changelog entry disagree, and
+refuses to let one ship whose tag was never cut at all. That last half is new, and it is here
+because the sentence used to claim it when it was not true: the gate compared the ref written in
+`marketplace.json` to `VERSION` and never asked git whether anything of that name existed. Six
+versions, 0.14.0 through 0.18.1, were committed and announced without ever being tagged or pushed
+while this paragraph read as a guarantee.
 
 **What is not.** There is no `--version` flag on install or update: you get what the catalogue
 currently pins, and there is no supported rollback to an earlier release. If one bites you, the

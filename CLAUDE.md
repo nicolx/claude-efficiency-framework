@@ -19,6 +19,7 @@ skills, agents, three Python hooks and the status line they deploy — no applic
 | `templates/` | consumers | Scaffolding the **project** owns once written. Never overwritten. |
 | `docs/verified-platform-behaviour.md` | this repo | The measured facts the design rests on. |
 | `scripts/probes/` | this repo | How to measure them again. |
+| `scripts/release.sh` | this repo | The only supported way to cut a release. Rule 6's second half. |
 | `CLAUDE.md` | this repo | This file. It never travels into a consumer session. |
 
 ## Rules
@@ -63,11 +64,28 @@ what good code is. If a proposal is review doctrine or a coding principle, it be
 standards document a project declares, not here. `agents/reviewer.md` measures one thing: does the
 diff do what the task said, and only that.
 
-### 6. Version every change to a shipped artefact
+### 6. Version every change to a shipped artefact — and then actually release it
 
 Bump `VERSION` **and** `.claude-plugin/plugin.json` **and** add a `CHANGELOG.md` entry in the same
 commit. `scripts/qa.sh` fails when those three disagree, because a consumer pins by ref and a silent
 change is a change to their sessions.
+
+That is where this rule used to stop, and the stopping cost six releases. 0.14.0 through 0.18.1 were
+bumped, announced and committed exactly as written above, and not one of them was ever tagged or
+pushed: consumers resolve `ref`, so `origin` went on serving 0.13.0 while the changelog described
+work nobody could install. Nothing caught it, because the gate compared five copies of the version
+inside the working tree and never asked git whether the release existed.
+
+So the rule has a second half. A version is not released by committing it:
+
+```bash
+bash scripts/release.sh          # gate, tag, push, then verify the ref resolves on origin
+```
+
+`scripts/lib/check-release-tag.py` holds the invariant between releases — every version `VERSION`
+has ever held has a tag, at a tree whose `VERSION` agrees. The version currently in flight is exempt,
+because the commit that bumps to X cannot already carry a tag pointing at itself; that leaves one
+release's worth of hole, and `release.sh` is what closes it.
 
 ### 7. One fact, one place
 

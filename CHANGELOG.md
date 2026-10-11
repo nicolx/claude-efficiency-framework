@@ -12,6 +12,41 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 
 ## [Unreleased]
 
+### Fixed — six releases were announced and never actually released
+
+Repo-internal: it changes `scripts/`, `CLAUDE.md` and `README.md` only, so no consumer session
+behaves differently and `VERSION` does not move. What it changes is whether a release reaches anyone.
+
+Rule 6 said to bump `VERSION`, `plugin.json` and `CHANGELOG.md` in the same commit, and stopped
+there. So that is exactly what happened, six times: **0.14.0 through 0.18.1 were bumped, announced
+and committed, and not one of them was ever tagged or pushed.** Consumers resolve a `ref`, so
+`origin` went on serving 0.13.0 while the changelog described work nobody could install. No script
+in the repo had ever run `git tag`; the step existed only in someone's head, and a step that lives
+only in someone's head is a step that gets skipped.
+
+The gate was green throughout, and the reason is the interesting part. Its version section compared
+five things — `VERSION`, `plugin.json`, the marketplace `ref`, the marketplace `version` field, the
+changelog heading — **all five of which live in the working tree**. They can agree perfectly with
+each other while saying nothing about whether the release exists. That is rule 1 turned inward: a
+load-bearing claim about the outside world, validated only against a copy of itself.
+
+- **`scripts/lib/check-release-tag.py`** asks git instead of JSON. Every version `VERSION` has ever
+  held must have a tag, pointing at a tree whose `VERSION` agrees, and an ancestor of `HEAD` — a tag
+  on a detached experiment is worse than a missing one, because it resolves and ships the wrong
+  tree. The version currently in flight is exempt and reported amber: the commit that bumps to X
+  cannot already carry a tag pointing at itself. `--remote` additionally asks `origin` whether the
+  tag was pushed, which is the half that actually failed here; it needs the network, so the gate
+  stays offline-runnable and `release.sh` passes it.
+- **`scripts/release.sh`** is now the only supported way to cut a release: refuse a dirty tree, run
+  the gate, cut the annotated tag, push the branch *then* the tag, and verify against `origin` that
+  the ref a consumer resolves actually resolves.
+- **Rule 6 gained its second half**, and the README lost a guarantee it was not making.
+- The six missing tags are **backfilled** at their release commits, dated to those commits and
+  saying in the tag message that they were cut retroactively.
+
+Four selftest cases; the missing-tag and misplaced-tag cases were mutation-tested against the
+restored defect.
+
 ### Fixed — the alias-to-id mapping expired on the wrong clock
 
 Repo-internal: it changes `scripts/` and `docs/` only, so no consumer session behaves differently

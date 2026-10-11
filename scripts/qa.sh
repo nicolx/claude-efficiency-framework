@@ -314,6 +314,37 @@ print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0].get("vers
     fi
 fi
 
+# ── 6b. the tag the catalogue pins actually exists ───────────────────────────
+# Everything above compares five copies of the version to each other, all of them
+# in this working tree. They can agree perfectly while the release does not
+# exist, and for six versions they did: 0.14.0 through 0.18.1 were committed,
+# announced in the changelog, and never tagged or pushed, with this gate green
+# throughout. Consumers resolve a ref, so a release nobody cut is a release
+# nobody has. This is the only check here that asks git instead of JSON.
+#
+# The remote half needs the network, so it is left to scripts/release.sh. The
+# gate stays runnable offline.
+section "release tags"
+if command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-release-tag.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the tag guard cannot tell a cut release from an uncut one"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+
+    out=$(python3 scripts/lib/check-release-tag.py "$ROOT" 2>&1)
+    case "$?" in
+        0) ok "$(printf '%s' "$out" | head -1)" ;;
+        3) skip "release tag" "$(printf '%s' "$out" | head -1)"
+           printf '%s\n' "$out" | tail -n +2 | sed 's/^/        /' ;;
+        *) bad "the catalogue pins a tag that does not exist"
+           printf '%s\n' "$out" | sed 's/^/        /' ;;
+    esac
+else
+    skip "release tags" "git or python3 not found"
+fi
+
 # ── 7. this repo's own install of its own framework ─────────────────────────
 # Dogfooding, and it has already earned its place: the check exists because an
 # upgrade across 0.4.0 leaves a project silently inert, and this repo is a
