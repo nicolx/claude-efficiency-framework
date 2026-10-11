@@ -1,7 +1,7 @@
 #!/bin/bash
 # release.sh — cut the tag the catalogue pins, and push it.
 #
-#   bash scripts/release.sh            # gate, tag, push, verify the remote resolves it
+#   bash scripts/release.sh            # gate, changelog, tag, push, verify the remote
 #   bash scripts/release.sh --dry-run  # everything except the tag and the push
 #
 # This script exists because the step it performs was never written down. Rule 6
@@ -51,6 +51,19 @@ case "$QA" in
          die "the gate did not pass (exit $QA). A release is the one thing that cannot ship red." ;;
 esac
 rm -f /tmp/release-qa.$$
+
+# ── 2b. [Unreleased] must be empty ────────────────────────────────────
+# Repo-internal work does not bump VERSION, so it lands under [Unreleased] and
+# nothing was ever responsible for moving it out. By 0.19.0 three of that
+# section's four entries were already inside the tag origin was serving, and the
+# changelog described as pending what consumers had had for a release.
+#
+# Cutting the tag is the one moment that can force the question, so it is asked
+# here rather than in qa.sh: between releases a populated [Unreleased] is exactly
+# right, and a gate red on it would be red for most of this repo's life.
+bold "== changelog"
+python3 scripts/lib/check-changelog.py \
+    || die "[Unreleased] still has entries. File them under $TAG — they ship in it."
 
 # ── 3. the tag must not already exist ───────────────────────────────────────
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then

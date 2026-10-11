@@ -12,10 +12,41 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 
 ## [Unreleased]
 
+Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
+while this section has content, so it can never again describe work consumers already have.
+
+### Fixed — `[Unreleased]` described work consumers already had
+
+Repo-internal: `scripts/`, `CHANGELOG.md` and `CLAUDE.md` only.
+
+The section had no definition, only a habit. Rule 6 asks for a bump when a **shipped** artefact
+changes, so repo-internal work — the gate, the probes, the docs — correctly does not bump. It was
+filed under `[Unreleased]` and nothing ever moved it out, because nothing was responsible for moving
+it. By 0.19.0 three of that section's four entries were already inside the tag `origin` was serving:
+the changelog called pending what consumers had had for a release.
+
+The three are now filed under `[0.19.0]`, under a heading that says why they are there. That is the
+tidying, and on its own it would last about a week — the next repo-internal commit followed by a
+release puts it straight back, unnoticed. The same shape as the six releases that were announced and
+never pushed: a step that exists only in someone's head is a step that is skipped.
+
+So the section gets one checkable meaning — **committed, and not yet inside any tag** — and
+`scripts/lib/check-changelog.py` enforces it from the one place it cannot be skipped:
+`scripts/release.sh` refuses to cut a tag while `[Unreleased]` has entries. Cutting a release is now
+what forces them to be filed under the version they ship in.
+
+Deliberately not a gate check. Between releases a populated `[Unreleased]` is exactly right, and a
+gate red on it would be red for most of this repo's life — the kind of red people learn to skip past.
+What `scripts/qa.sh` runs is the selftest, which is the part that rots: a guard nobody exercises
+until release day is a guard discovered broken on release day.
+
+Five selftest cases, three mutation-tested. The case that earned its place is the one asserting
+silence: a check that counted any text under the heading would refuse every release from the moment
+the section documented itself — a guard whose first act is to block the thing it was built to protect.
+
 ### Added — the coexistence measurement had no probe, for five weeks
 
-Repo-internal: `scripts/probes/` and `docs/` only, so no consumer session behaves differently and
-`VERSION` does not move.
+Repo-internal: `scripts/probes/` and `docs/` only, so no consumer session behaves differently.
 
 Two claims in `docs/verified-platform-behaviour.md` rested on a single run from 2026-09-05
 (`dfa61e0`) — that a project's own `Stop` hook and the autopilot are each invoked on every turn, and
@@ -57,99 +88,6 @@ Also corrected: § 3's two-hook row sat under a 2026-10-10 provenance line that 
 read modes only, so a September figure was reading as a fresh one. It now carries its own date, and
 § 4's blocking contract is confirmed on 2.1.296 by the one evidence that actually shows a `reason`
 arrived — the model acting on it — rather than inferring it from the turn continuing.
-
-### Fixed — the install check validated a disk no consumer has
-
-Repo-internal, same as below: `scripts/` only, and `VERSION` does not move.
-
-`scripts/check-install.sh` validates the whole chain — policy, enablement,
-install, hooks, status line — against the plugin **as it sits on the developer's
-disk**. A consumer never sees that disk. They resolve the `ref` in
-`marketplace.json` and receive the tree at that tag, and nothing compared the
-two. The gate could be green on a plugin that, as published, was missing a file.
-
-The failure that opens is the one this repo keeps meeting: silence. A shipped
-file that is untracked or gitignored works perfectly in development and is
-simply absent at the tag. Claude Code runs the hooks it finds; the missing one
-does not error, does not warn, and leaves no trace.
-
-`scripts/lib/check-published-tree.py` asks three questions about trees rather
-than about files on disk:
-
-- **is everything we ship committed?** Every file under the shipped roots that
-  exists on disk must exist in `HEAD` — checked against `HEAD` and not only
-  against the tag, so the answer arrives at the commit that introduces the
-  problem rather than one release later.
-- **is the published tree wired to itself?** Every `${CLAUDE_PLUGIN_ROOT}/…`
-  path named in that tree's own `hooks/hooks.json` must exist *in that tree*.
-- **does it know its own version?** The `plugin.json` inside the tag must say
-  what the tag says.
-
-`--remote` adds the fourth, which `scripts/release.sh` now runs after pushing:
-the tag object `origin` serves must be the one that was validated. A force-pushed
-tag is the one way a ref can resolve for a consumer and still be something nobody
-checked.
-
-Four selftest cases, the three red ones mutation-tested. The fourth — the case
-where nothing is wrong — earned its place immediately: the first draft scanned
-`hooks.json` as raw text and read the backslash of an escaped `\"` as part of the
-path, so all three hooks reported missing. A guard inventing three failures
-rather than finding one, caught by the only case that asserts silence.
-
-### Fixed — six releases were announced and never actually released
-
-Repo-internal: it changes `scripts/`, `CLAUDE.md` and `README.md` only, so no consumer session
-behaves differently and `VERSION` does not move. What it changes is whether a release reaches anyone.
-
-Rule 6 said to bump `VERSION`, `plugin.json` and `CHANGELOG.md` in the same commit, and stopped
-there. So that is exactly what happened, six times: **0.14.0 through 0.18.1 were bumped, announced
-and committed, and not one of them was ever tagged or pushed.** Consumers resolve a `ref`, so
-`origin` went on serving 0.13.0 while the changelog described work nobody could install. No script
-in the repo had ever run `git tag`; the step existed only in someone's head, and a step that lives
-only in someone's head is a step that gets skipped.
-
-The gate was green throughout, and the reason is the interesting part. Its version section compared
-five things — `VERSION`, `plugin.json`, the marketplace `ref`, the marketplace `version` field, the
-changelog heading — **all five of which live in the working tree**. They can agree perfectly with
-each other while saying nothing about whether the release exists. That is rule 1 turned inward: a
-load-bearing claim about the outside world, validated only against a copy of itself.
-
-- **`scripts/lib/check-release-tag.py`** asks git instead of JSON. Every version `VERSION` has ever
-  held must have a tag, pointing at a tree whose `VERSION` agrees, and an ancestor of `HEAD` — a tag
-  on a detached experiment is worse than a missing one, because it resolves and ships the wrong
-  tree. The version currently in flight is exempt and reported amber: the commit that bumps to X
-  cannot already carry a tag pointing at itself. `--remote` additionally asks `origin` whether the
-  tag was pushed, which is the half that actually failed here; it needs the network, so the gate
-  stays offline-runnable and `release.sh` passes it.
-- **`scripts/release.sh`** is now the only supported way to cut a release: refuse a dirty tree, run
-  the gate, cut the annotated tag, push the branch *then* the tag, and verify against `origin` that
-  the ref a consumer resolves actually resolves.
-- **Rule 6 gained its second half**, and the README lost a guarantee it was not making.
-- The six missing tags are **backfilled** at their release commits, dated to those commits and
-  saying in the tag message that they were cut retroactively.
-
-Four selftest cases; the missing-tag and misplaced-tag cases were mutation-tested against the
-restored defect.
-
-### Fixed — the alias-to-id mapping expired on the wrong clock
-
-Repo-internal: it changes `scripts/` and `docs/` only, so no consumer session behaves differently
-and `VERSION` does not move.
-
-The framework routes by alias and the meter prices by id, and the gate holds the two together by
-checking a mapping the probe measured. That mapping was aged on a 90-day calendar — but what
-falsifies it is a **Claude Code release**, not the passage of time. An upgrade that moved what
-`haiku` resolves to would have left the gate green for up to three months while every run routed
-there was measured at the fallback rate.
-
-`scripts/lib/check-priced-models.py` now reads `claude --version` — a local subprocess, no session,
-no network, so it still runs anywhere the rest of the gate does — and compares it with
-`resolved.claude_code_version`. A mismatch reports the mapping **unverified** rather than wrong:
-exit 3, which `scripts/qa.sh` already renders as a skip. Amber and not red, because a release *can*
-move an alias without certainly having done so, and a gate that goes red on every upgrade is one
-people learn to skip. Where `claude` is absent — CI — the comparison is skipped and the output says
-so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
-under a client that never did.
 
 ## [0.19.0] — 2026-10-11
 
@@ -200,6 +138,101 @@ the limit it replaces.
 Ten selftest cases, five mutation-tested: the refusal never firing, the ceiling being read from the
 run file the model writes, a cache dated in the future being believed, the first turn of a run left
 unbounded, and the guard writing to the counters it must only read.
+
+### Repo-internal — gate and release machinery
+
+No consumer session behaves differently for any of the three below: between them they change
+`scripts/`, `docs/`, `CLAUDE.md` and `README.md`, and nothing a consumer receives. They are filed
+here rather than under `[Unreleased]` because this is the tag they shipped in — `VERSION` did not
+move for them, so nothing ever moved them out of `[Unreleased]`, and for one release the changelog
+described as pending what `origin` was already serving.
+
+### Fixed — the install check validated a disk no consumer has
+
+`scripts/check-install.sh` validates the whole chain — policy, enablement,
+install, hooks, status line — against the plugin **as it sits on the developer's
+disk**. A consumer never sees that disk. They resolve the `ref` in
+`marketplace.json` and receive the tree at that tag, and nothing compared the
+two. The gate could be green on a plugin that, as published, was missing a file.
+
+The failure that opens is the one this repo keeps meeting: silence. A shipped
+file that is untracked or gitignored works perfectly in development and is
+simply absent at the tag. Claude Code runs the hooks it finds; the missing one
+does not error, does not warn, and leaves no trace.
+
+`scripts/lib/check-published-tree.py` asks three questions about trees rather
+than about files on disk:
+
+- **is everything we ship committed?** Every file under the shipped roots that
+  exists on disk must exist in `HEAD` — checked against `HEAD` and not only
+  against the tag, so the answer arrives at the commit that introduces the
+  problem rather than one release later.
+- **is the published tree wired to itself?** Every `${CLAUDE_PLUGIN_ROOT}/…`
+  path named in that tree's own `hooks/hooks.json` must exist *in that tree*.
+- **does it know its own version?** The `plugin.json` inside the tag must say
+  what the tag says.
+
+`--remote` adds the fourth, which `scripts/release.sh` now runs after pushing:
+the tag object `origin` serves must be the one that was validated. A force-pushed
+tag is the one way a ref can resolve for a consumer and still be something nobody
+checked.
+
+Four selftest cases, the three red ones mutation-tested. The fourth — the case
+where nothing is wrong — earned its place immediately: the first draft scanned
+`hooks.json` as raw text and read the backslash of an escaped `\"` as part of the
+path, so all three hooks reported missing. A guard inventing three failures
+rather than finding one, caught by the only case that asserts silence.
+
+### Fixed — six releases were announced and never actually released
+
+What this one changes is whether a release reaches anyone at all.
+
+Rule 6 said to bump `VERSION`, `plugin.json` and `CHANGELOG.md` in the same commit, and stopped
+there. So that is exactly what happened, six times: **0.14.0 through 0.18.1 were bumped, announced
+and committed, and not one of them was ever tagged or pushed.** Consumers resolve a `ref`, so
+`origin` went on serving 0.13.0 while the changelog described work nobody could install. No script
+in the repo had ever run `git tag`; the step existed only in someone's head, and a step that lives
+only in someone's head is a step that gets skipped.
+
+The gate was green throughout, and the reason is the interesting part. Its version section compared
+five things — `VERSION`, `plugin.json`, the marketplace `ref`, the marketplace `version` field, the
+changelog heading — **all five of which live in the working tree**. They can agree perfectly with
+each other while saying nothing about whether the release exists. That is rule 1 turned inward: a
+load-bearing claim about the outside world, validated only against a copy of itself.
+
+- **`scripts/lib/check-release-tag.py`** asks git instead of JSON. Every version `VERSION` has ever
+  held must have a tag, pointing at a tree whose `VERSION` agrees, and an ancestor of `HEAD` — a tag
+  on a detached experiment is worse than a missing one, because it resolves and ships the wrong
+  tree. The version currently in flight is exempt and reported amber: the commit that bumps to X
+  cannot already carry a tag pointing at itself. `--remote` additionally asks `origin` whether the
+  tag was pushed, which is the half that actually failed here; it needs the network, so the gate
+  stays offline-runnable and `release.sh` passes it.
+- **`scripts/release.sh`** is now the only supported way to cut a release: refuse a dirty tree, run
+  the gate, cut the annotated tag, push the branch *then* the tag, and verify against `origin` that
+  the ref a consumer resolves actually resolves.
+- **Rule 6 gained its second half**, and the README lost a guarantee it was not making.
+- The six missing tags are **backfilled** at their release commits, dated to those commits and
+  saying in the tag message that they were cut retroactively.
+
+Four selftest cases; the missing-tag and misplaced-tag cases were mutation-tested against the
+restored defect.
+
+### Fixed — the alias-to-id mapping expired on the wrong clock
+
+The framework routes by alias and the meter prices by id, and the gate holds the two together by
+checking a mapping the probe measured. That mapping was aged on a 90-day calendar — but what
+falsifies it is a **Claude Code release**, not the passage of time. An upgrade that moved what
+`haiku` resolves to would have left the gate green for up to three months while every run routed
+there was measured at the fallback rate.
+
+`scripts/lib/check-priced-models.py` now reads `claude --version` — a local subprocess, no session,
+no network, so it still runs anywhere the rest of the gate does — and compares it with
+`resolved.claude_code_version`. A mismatch reports the mapping **unverified** rather than wrong:
+exit 3, which `scripts/qa.sh` already renders as a skip. Amber and not red, because a release *can*
+move an alias without certainly having done so, and a gate that goes red on every upgrade is one
+people learn to skip. Where `claude` is absent — CI — the comparison is skipped and the output says
+so, rather than passing silently. The calendar stays behind it, for a mapping that moves server-side
+under a client that never did.
 
 ## [0.18.2] — 2026-10-10
 

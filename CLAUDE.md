@@ -79,13 +79,21 @@ inside the working tree and never asked git whether the release existed.
 So the rule has a second half. A version is not released by committing it:
 
 ```bash
-bash scripts/release.sh          # gate, tag, push, then verify the ref resolves on origin
+bash scripts/release.sh          # gate, changelog, tag, push, then verify the ref on origin
 ```
 
 `scripts/lib/check-release-tag.py` holds the invariant between releases — every version `VERSION`
 has ever held has a tag, at a tree whose `VERSION` agrees. The version currently in flight is exempt,
 because the commit that bumps to X cannot already carry a tag pointing at itself; that leaves one
 release's worth of hole, and `release.sh` is what closes it.
+
+Not every change is a release, and that is the hole the rule leaves. Work under `scripts/`, `docs/`
+or in this file changes nothing a consumer receives, so it does not bump — it lands under
+`[Unreleased]` in the changelog, and nothing was ever responsible for moving it out again. By 0.19.0
+three of that section's four entries were already inside the tag `origin` was serving. So
+`[Unreleased]` now has one checkable meaning, **committed and not yet inside any tag**, and
+`scripts/lib/check-changelog.py` makes `release.sh` refuse to cut a tag while it has entries. Only
+its selftest runs at the gate: between releases a full `[Unreleased]` is exactly right.
 
 `scripts/lib/check-published-tree.py` holds the other half: that the tree at that tag is the one the
 gate checked. `check-install.sh` validates this disk, and nobody installs this disk. A shipped file

@@ -314,6 +314,24 @@ print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0].get("vers
     fi
 fi
 
+# ── 6a2. the changelog guard still refuses a dirty [Unreleased] ──────────────
+# Only the selftest runs here. The live check belongs to scripts/release.sh: a
+# populated [Unreleased] is correct between releases and wrong only at the moment
+# one is cut. What the gate owes is proof that the refusal still fires when that
+# moment arrives — a guard nobody exercises until release day is a guard that is
+# discovered broken on release day.
+section "changelog"
+if command -v python3 >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-changelog.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the changelog guard would not stop a release with unfiled entries"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+else
+    skip "changelog guard" "python3 not found"
+fi
+
 # ── 6b. the tag the catalogue pins actually exists ───────────────────────────
 # Everything above compares five copies of the version to each other, all of them
 # in this working tree. They can agree perfectly while the release does not
