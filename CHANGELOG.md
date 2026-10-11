@@ -12,6 +12,44 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 
 ## [Unreleased]
 
+### Fixed — the install check validated a disk no consumer has
+
+Repo-internal, same as below: `scripts/` only, and `VERSION` does not move.
+
+`scripts/check-install.sh` validates the whole chain — policy, enablement,
+install, hooks, status line — against the plugin **as it sits on the developer's
+disk**. A consumer never sees that disk. They resolve the `ref` in
+`marketplace.json` and receive the tree at that tag, and nothing compared the
+two. The gate could be green on a plugin that, as published, was missing a file.
+
+The failure that opens is the one this repo keeps meeting: silence. A shipped
+file that is untracked or gitignored works perfectly in development and is
+simply absent at the tag. Claude Code runs the hooks it finds; the missing one
+does not error, does not warn, and leaves no trace.
+
+`scripts/lib/check-published-tree.py` asks three questions about trees rather
+than about files on disk:
+
+- **is everything we ship committed?** Every file under the shipped roots that
+  exists on disk must exist in `HEAD` — checked against `HEAD` and not only
+  against the tag, so the answer arrives at the commit that introduces the
+  problem rather than one release later.
+- **is the published tree wired to itself?** Every `${CLAUDE_PLUGIN_ROOT}/…`
+  path named in that tree's own `hooks/hooks.json` must exist *in that tree*.
+- **does it know its own version?** The `plugin.json` inside the tag must say
+  what the tag says.
+
+`--remote` adds the fourth, which `scripts/release.sh` now runs after pushing:
+the tag object `origin` serves must be the one that was validated. A force-pushed
+tag is the one way a ref can resolve for a consumer and still be something nobody
+checked.
+
+Four selftest cases, the three red ones mutation-tested. The fourth — the case
+where nothing is wrong — earned its place immediately: the first draft scanned
+`hooks.json` as raw text and read the backslash of an escaped `\"` as part of the
+path, so all three hooks reported missing. A guard inventing three failures
+rather than finding one, caught by the only case that asserts silence.
+
 ### Fixed — six releases were announced and never actually released
 
 Repo-internal: it changes `scripts/`, `CLAUDE.md` and `README.md` only, so no consumer session

@@ -87,6 +87,11 @@ has ever held has a tag, at a tree whose `VERSION` agrees. The version currently
 because the commit that bumps to X cannot already carry a tag pointing at itself; that leaves one
 release's worth of hole, and `release.sh` is what closes it.
 
+`scripts/lib/check-published-tree.py` holds the other half: that the tree at that tag is the one the
+gate checked. `check-install.sh` validates this disk, and nobody installs this disk. A shipped file
+that is untracked or gitignored works here and is absent there, and the hook it belongs to leaves no
+trace when it does not run.
+
 ### 7. One fact, one place
 
 A path written in prose is a live reference. A statement duplicated in two files will be wrong in

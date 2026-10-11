@@ -90,14 +90,32 @@ fi
 # resolve has not been checked.
 bold "== verify"
 if [ "$DRY" = yes ]; then
-    printf '  would ask origin whether %s resolves\n' "$TAG"
+    printf '  would ask origin whether %s resolves, and whether it serves the tree we checked\n' "$TAG"
     exit 0
 fi
+
+# Two questions, and they are not the same one. The first is whether the ref a
+# consumer resolves exists at all. The second is whether what it resolves TO is
+# what the gate just validated — a tag can resolve perfectly and carry a tree
+# missing a file nobody noticed was never committed.
+UNVERIFIED=no
 python3 scripts/lib/check-release-tag.py --remote
-RC=$?
-case "$RC" in
-    0) printf '\033[1m%s is live\033[0m — the catalogue ref %s now resolves on origin.\n' "$TAG" "$TAG" ;;
-    3) printf '  the remote could not be reached; %s is local and pushed, but unverified.\n' "$TAG" ;;
+case "$?" in
+    0) ;;
+    3) UNVERIFIED=yes ;;
     *) die "$TAG does not resolve on origin after pushing it." ;;
 esac
+
+python3 scripts/lib/check-published-tree.py --remote
+case "$?" in
+    0) ;;
+    3) UNVERIFIED=yes ;;
+    *) die "origin serves $TAG, but not the tree this gate checked." ;;
+esac
+
+if [ "$UNVERIFIED" = yes ]; then
+    printf '  %s is pushed, but the remote could not be reached to confirm it.\n' "$TAG"
+else
+    printf '\033[1m%s is live\033[0m — origin resolves %s, and serves the tree that was checked.\n' "$TAG" "$TAG"
+fi
 exit 0

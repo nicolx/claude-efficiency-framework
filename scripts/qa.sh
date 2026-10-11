@@ -345,6 +345,31 @@ else
     skip "release tags" "git or python3 not found"
 fi
 
+# ── 6c. the tree a consumer resolves is the tree that was checked ────────────
+# Section 7 below validates the chain against the plugin as it sits on this
+# disk. A consumer never sees this disk: they resolve the pinned ref. A shipped
+# file that is untracked or gitignored works perfectly here and is simply absent
+# there, and the hook it belongs to does not error — it leaves no trace at all.
+section "published tree"
+if command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    if out=$(python3 scripts/lib/check-published-tree.py --selftest 2>&1); then
+        ok "$out"
+    else
+        bad "the published-tree guard cannot tell a complete release from a gutted one"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+
+    out=$(python3 scripts/lib/check-published-tree.py "$ROOT" 2>&1)
+    case "$?" in
+        0) ok "$(printf '%s' "$out" | head -1)" ;;
+        3) skip "published tree" "$(printf '%s' "$out" | head -1)" ;;
+        *) bad "a consumer would receive something other than what was validated"
+           printf '%s\n' "$out" | sed 's/^/        /' ;;
+    esac
+else
+    skip "published tree" "git or python3 not found"
+fi
+
 # ── 7. this repo's own install of its own framework ─────────────────────────
 # Dogfooding, and it has already earned its place: the check exists because an
 # upgrade across 0.4.0 leaves a project silently inert, and this repo is a
