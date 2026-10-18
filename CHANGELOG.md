@@ -15,6 +15,14 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.20.1] — 2026-10-18
+
+### Changed — the alias mapping is re-measured on 2.1.302
+
+`hooks/lib/model-costs.json` recorded what `haiku`, `sonnet` and `opus` resolve to on 2.1.296, so
+the gate reported the mapping unverified on 2.1.302. `scripts/probes/model-ids.sh` re-run: the same
+three ids, all priced. Only the version and date under `resolved` changed.
+
 ### Decided — two backlog items closed as limits, not as work
 
 A release cannot be verified by the session that wrote it, because hooks, the charter and output
