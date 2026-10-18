@@ -15,6 +15,18 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Changed — the auto-invocation probe runs a rolling queue
+
+Repo-internal: `scripts/probes/skill-auto-invoke.sh` only.
+
+It started four sessions and waited for all four, so every batch cost as much as its slowest member
+while three workers idled. A new session now starts as soon as one finishes. `wait -n` would do this
+directly, but macOS ships bash 3.2, so the probe counts running jobs instead. It also prints its
+wall-clock time, which nothing measured before. A full run of 48 Haiku sessions on 2.1.302 now takes
+**242 s**. The batched version took about eleven minutes, though that figure was never recorded
+precisely. The hit rates are still within a trial of § 14's, so the queue changed how long the probe
+takes and not what it measures.
+
 ### Fixed — `[0.12.0]` now says it was never released on its own
 
 Repo-internal: `CHANGELOG.md` only.

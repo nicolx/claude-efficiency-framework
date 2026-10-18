@@ -260,22 +260,27 @@ run_case() {
 }
 
 # Four at a time: sixteen sessions one after another is a coffee break, and they
-# share nothing.
+# share nothing. A rolling queue, not batches: a new session starts the moment
+# any slot frees. Batching four and waiting for all of them made every batch
+# cost as much as its slowest member while three workers idled — 48 sessions
+# took eleven minutes. `wait -n` would do this directly, but macOS ships bash
+# 3.2, which lacks it, so the free slot is found by counting running jobs.
+SLOTS=4
 NCASES=$(printf '%s\n' "$CASES" | grep -c '~')
-echo "Running $((NCASES * TRIALS)) sessions, four at a time:"
-PENDING=0
+echo "Running $((NCASES * TRIALS)) sessions, $SLOTS at a time:"
+STARTED=$(date +%s)
 t=1
 while [ "$t" -le "$TRIALS" ]; do
     while IFS='~' read -r key expected prompt; do
         key=$(echo "$key" | xargs); prompt=$(echo "$prompt" | sed 's/^ *//;s/ *$//')
         [ -n "$key" ] || continue
+        while [ "$(jobs -rp | wc -l)" -ge "$SLOTS" ]; do sleep 1; done
         run_case "$key-t$t" "$prompt" &
-        PENDING=$((PENDING + 1))
-        if [ "$PENDING" -ge 4 ]; then wait; PENDING=0; fi
     done <<< "$CASES"
     t=$((t + 1))
 done
 wait
+echo "all sessions finished in $(( $(date +%s) - STARTED ))s"
 
 echo
 echo "| case | expected | reached | what it chose instead | reading |"
