@@ -34,6 +34,14 @@ settings reproduces the October table. A consistent direction rather than a proo
 such. The same run found that a headless session can call `ScheduleWakeup` and outlive
 `--max-turns` by half an hour, so `skill-auto-invoke.sh` now withholds it.
 
+### Added — `efficiency:fanout` has been run
+
+`scripts/probes/fanout.sh`, § 19. It is the first time the skill has run at all. Twice, four
+independent items left in a single assistant message as four `implementer-fast` delegations, the gate
+ran after the batch, and 4/4 tests were green, for about $0.12. With `gate: ""` the same request was
+refused, with the skill's reason, in three sessions out of three. Batching beyond one batch is still
+unmeasured.
+
 ## [0.20.0] — 2026-10-18
 
 ### Added — the status line shows the session, not only the backlog

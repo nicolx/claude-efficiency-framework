@@ -16,7 +16,8 @@ Re-measured: **2026-10-11** · Claude Code **2.1.296** — § 2 **re-run against
 extended, § 3 row A2 and § 4 confirmed. The probe the original measurement never committed now exists.
 Re-measured: **2026-10-18** · Claude Code **2.1.302** — every headless probe re-run with the developer's
 `~/.claude/settings.json` shut out by `--setting-sources project,local`, which until then had reached
-every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells moved; § 14 re-measured.
+every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells moved; § 14 re-measured;
+§ 19 added, the first run of `efficiency:fanout`.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -890,6 +891,40 @@ Three findings, two of which would have been guessed wrong:
 The plugin needs no manifest entry: an `output-styles/` directory beside `.claude-plugin/` is found
 on its own.
 
+## 19. `efficiency:fanout` fans out, and refuses without a gate
+
+Until this was measured the skill had never been run, by anyone, once — the only skill with no
+evidence behind it at all.
+
+Measured **2026-10-18** on **2.1.302** with `scripts/probes/fanout.sh`, twice, Sonnet driving. A
+scaffolded project has four stub functions in four files, each with its own unittest, and a policy
+that routes routine work to Haiku. The skill is invoked by name; whether a plain request reaches it is
+§ 14's question. Read from the session stream and from the files afterwards:
+
+| claim | run 1 | run 2 |
+|---|---|---|
+| subagents started by one assistant message | 4 | 4 |
+| subagent type | `implementer-fast` ×4 | `implementer-fast` ×4 |
+| gate run after the batch | yes | yes |
+| tests green at the end | 4/4 | 4/4 |
+| `total_cost_usd` in the result event | $0.123 | $0.118 |
+| same request, `gate: ""` — delegations, files edited | none, 0 | none, 0 |
+
+**It is a real fan-out, not a sequential run under the name**: all four delegations leave in one
+message. They are routed by the policy as the skill says, and the gate runs once the batch is back.
+
+**The refusal is the skill's text at work.** With the gate empty, all three sessions run declined and
+said why. The rule that a fan-out needs a gate exists only in `SKILL.md`, and the one transcript kept
+shows the session reading the policy and the sources and never the skill file — so it came from the
+skill being loaded.
+
+**Under `-p` a slash command's expansion never reaches the stream** — no `Skill` call, no user
+message carrying its text. The `init` event lists the skill as available, and that is all the stream
+can say. Whether the text reached the model has to be read from what the model then did.
+
+Not measured: more items than one batch holds, so whether it actually batches at ten, and whether it
+runs the gate between batches, is still only what the skill says.
+
 ## Re-running these measurements
 
 ```bash
@@ -901,6 +936,7 @@ bash scripts/probes/model-ids.sh           # which id each routing alias resolve
 bash scripts/probes/statusline.sh install   # then start a session, look at the bottom, and `show`
 bash scripts/probes/pdf-token-cost.sh make # build the test PDF; read it in a session, then `measure <transcript>`
 bash scripts/probes/plugin-output-style.sh # which name selects a plugin's output style
+bash scripts/probes/fanout.sh              # four items in one batch, and a refusal with no gate
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook
