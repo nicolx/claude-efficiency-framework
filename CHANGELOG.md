@@ -15,6 +15,11 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.20.2] — 2026-10-18
+
+No file a consumer receives has changed since 0.20.1: everything below is repo-internal. It is
+released so that the tag matches the published work and the changelog has no unreleased entries.
+
 ### Changed — measurements go stale on a Claude Code upgrade, not only on the calendar
 
 Every numbered section of `docs/verified-platform-behaviour.md` now ends with a `Verified:` line:
