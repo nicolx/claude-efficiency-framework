@@ -113,6 +113,7 @@ PROMPT='Run the shell command "echo tick" eight times, as eight separate Bash to
 
 echo "allow_first=$ALLOW_FIRST  max_turns=$MAX_TURNS"
 OUT=$( cd "$DIR" && claude -p "$PROMPT" --model haiku \
+         --setting-sources project,local \
          --max-turns "$MAX_TURNS" --max-budget-usd 0.50 \
          --permission-mode dontAsk --settings "$DIR/settings.json" </dev/null 2>&1 )
 

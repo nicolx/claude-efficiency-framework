@@ -132,6 +132,7 @@ PROMPT='Run these three shell commands as three separate Bash tool calls, one at
 
 echo "max_turns=$MAX_TURNS"
 OUT=$( cd "$DIR" && claude -p "$PROMPT" --model haiku \
+         --setting-sources project,local \
          --max-turns "$MAX_TURNS" --max-budget-usd 0.50 \
          --permission-mode dontAsk --settings "$DIR/settings.json" </dev/null 2>&1 )
 

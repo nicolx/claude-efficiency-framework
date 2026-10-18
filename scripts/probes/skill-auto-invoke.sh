@@ -257,10 +257,16 @@ run_case() {
     local dir="$ROOT/$key"
     mkdir -p "$dir" || return 1
     make_fixture "$dir" "$key" || return 1
+    # ScheduleWakeup and CronCreate are withheld because under -p a scheduled
+    # wakeup keeps the process alive until it fires: on 2026-10-18 a `run` trial
+    # launched its reviewer in the background, scheduled a wakeup to wait for it,
+    # then another for 30 minutes, and the whole probe sat behind that one
+    # session. --max-turns bounds turns, not wall-clock time. No skill needs either.
     ( cd "$dir" && git init -q . >/dev/null 2>&1
       claude -p "$prompt" \
         --model "$MODEL" --max-turns 10 --max-budget-usd 0.40 \
         --permission-mode bypassPermissions \
+        --disallowedTools ScheduleWakeup CronCreate \
         --setting-sources project,local \
         --plugin-dir "$PLUGIN" \
         --output-format stream-json --verbose </dev/null >"$dir/stream.json" 2>&1 )

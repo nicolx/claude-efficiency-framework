@@ -21,6 +21,12 @@ a prompt and spend real money to answer.
 
 Flags are read out of the probes themselves rather than listed here, so a new
 probe using a new flag is covered the day it lands.
+
+The same reader holds a second rule, and this one costs not even a subprocess:
+every `claude -p` in a probe passes `--setting-sources`. Without it the
+developer's own ~/.claude/settings.json reaches the session — on the author's
+machine a personal output style was in every probe session until 2026-10-18 —
+and the number recorded is a measurement of one machine, not of the platform.
 """
 
 import glob
@@ -30,14 +36,14 @@ import subprocess
 import sys
 
 INVOCATION = re.compile(r"\bclaude\b")
+SESSION = re.compile(r"\bclaude -p\b")
 # Camel case is real here: --allowedTools, --disallowedTools. A character
 # class that stops at the first capital silently reports "--allowed" missing.
 FLAG = re.compile(r"(--[a-zA-Z][a-zA-Z0-9-]+)")
 
 
-def flags_used(paths):
-    """Flags appearing inside a `claude ...` invocation, continuations included."""
-    found = {}
+def invocations(paths):
+    """(path, text) for every `claude ...` invocation, continuations joined."""
     for path in paths:
         with open(path, errors="replace") as fh:
             lines = fh.read().splitlines()
@@ -50,10 +56,24 @@ def flags_used(paths):
                 while chunk[-1].rstrip().endswith("\\") and i + 1 < len(lines):
                     i += 1
                     chunk.append(lines[i])
-                for f in FLAG.findall(" ".join(chunk)):
-                    found.setdefault(f, set()).add(os.path.basename(path))
+                yield path, " ".join(chunk)
             i += 1
+
+
+def flags_used(paths):
+    """Flags appearing inside a `claude ...` invocation."""
+    found = {}
+    for path, text in invocations(paths):
+        for f in FLAG.findall(text):
+            found.setdefault(f, set()).add(os.path.basename(path))
     return found
+
+
+def unisolated(paths):
+    """Probes with a session that would load the developer's user settings."""
+    return sorted({os.path.basename(path) for path, text in invocations(paths)
+                   if SESSION.search(text) and not text.lstrip().startswith("#")
+                   and "--setting-sources" not in text})
 
 
 def accepted(flag):
@@ -98,6 +118,12 @@ def selftest():
         want = {"--allowedTools", "--max-budget-usd", "--permission-mode"}
         if not want <= got:
             failures.append("the reader missed %s" % ", ".join(sorted(want - got)))
+        if unisolated([os.path.join(d, "sample.sh")]) != ["sample.sh"]:
+            failures.append("a session without --setting-sources reads as isolated")
+        with open(os.path.join(d, "isolated.sh"), "w") as fh:
+            fh.write("claude -p x \\\n  --setting-sources project,local --max-turns 1\n")
+        if unisolated([os.path.join(d, "isolated.sh")]):
+            failures.append("a flag on a continuation line reads as missing")
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
@@ -106,7 +132,8 @@ def selftest():
         for f in failures:
             print("selftest FAIL %s" % f, file=sys.stderr)
         return 1
-    print("selftest: a live flag reads live, an invented one reads dead, camel case survives")
+    print("selftest: a live flag reads live, an invented one reads dead, camel case survives,"
+          " an unisolated session is caught")
     return 0
 
 
@@ -117,6 +144,14 @@ def main():
     paths = sorted(glob.glob(os.path.join(root, "scripts", "probes", "*.sh")))
     if not paths:
         print("no probes found under scripts/probes/", file=sys.stderr)
+        return 1
+
+    leaky = unisolated(paths)
+    if leaky:
+        print("probes whose sessions load the developer's ~/.claude/settings.json"
+              " (add --setting-sources project,local):", file=sys.stderr)
+        for name in leaky:
+            print("  " + name, file=sys.stderr)
         return 1
 
     used = flags_used(paths)

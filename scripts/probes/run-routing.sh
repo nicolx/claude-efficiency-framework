@@ -118,6 +118,7 @@ EOF
 # ── phase 1: the run ─────────────────────────────────────────────────────────
 echo "Phase 1 — executing the run. This takes a few minutes and spends real money."
 ( cd "$DIR" && claude -p "Go ahead with the approved plan and start the run." \
+    --setting-sources project,local \
     --model "$DRIVER" --max-turns 60 --max-budget-usd "$BUDGET" \
     --permission-mode bypassPermissions \
     --plugin-dir "$PLUGIN" \
@@ -190,6 +191,7 @@ echo "| the gate is green at the end | green | $GATE |"
 echo
 echo "Phase 2 — asking a fresh session to report on it."
 ( cd "$DIR" && claude -p "How did that run go, and what did it cost?" \
+    --setting-sources project,local \
     --model "$DRIVER" --max-turns 15 --max-budget-usd 1.00 \
     --permission-mode bypassPermissions \
     --plugin-dir "$PLUGIN" \

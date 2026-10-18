@@ -44,6 +44,7 @@ mkdir -p "$PROJECT_DIR/.claude"
 make_settings "$PROJECT_MARKER" "$PROJECT_DIR/.claude/settings.json"
 
 ( cd "$PROJECT_DIR" && claude -p "Reply with the single word: ok" --model haiku \
+    --setting-sources project,local \
     --max-turns 1 --max-budget-usd 0.20 --permission-mode dontAsk </dev/null >/dev/null 2>&1 )
 
 # Case B: the identical hook, passed via --settings — the documented way to
@@ -53,6 +54,7 @@ mkdir -p "$EXPLICIT_DIR"
 make_settings "$EXPLICIT_MARKER" "$DIR/explicit-settings.json"
 
 ( cd "$EXPLICIT_DIR" && claude -p "Reply with the single word: ok" --model haiku \
+    --setting-sources project,local \
     --max-turns 1 --max-budget-usd 0.20 --permission-mode dontAsk \
     --settings "$DIR/explicit-settings.json" </dev/null >/dev/null 2>&1 )
 

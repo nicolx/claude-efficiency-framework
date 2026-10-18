@@ -55,6 +55,7 @@ MAP=""
 for alias in $ALIASES; do
     out="$WORK/$alias.json"
     ( cd "$WORK" && claude -p 'hi' --model "$alias" \
+        --setting-sources project,local \
         --output-format stream-json --verbose --max-turns 1 ) > "$out" 2>"$out.err"
 
     id=$(python3 - "$out" <<'PY'

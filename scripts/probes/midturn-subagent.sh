@@ -93,6 +93,7 @@ PROMPT="Use the Task tool to launch exactly one general-purpose subagent. Instru
 
 echo "max_turns=$MAX_TURNS  marker=$MARKER"
 OUT=$( cd "$DIR" && claude -p "$PROMPT" --model haiku \
+         --setting-sources project,local \
          --max-turns "$MAX_TURNS" --max-budget-usd 0.75 \
          --permission-mode dontAsk --settings "$DIR/settings.json" </dev/null 2>&1 )
 

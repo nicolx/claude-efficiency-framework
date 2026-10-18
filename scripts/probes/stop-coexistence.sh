@@ -141,6 +141,7 @@ HOOK_SH
     echo
     echo "── mode: cap ── two always-blocking hooks, no tool calls (max-turns $turns)"
     ( cd "$DIR" && claude -p "Reply with the single word: ok" \
+        --setting-sources project,local \
         --model haiku --max-turns "$turns" --max-budget-usd 0.50 --output-format json \
         --permission-mode dontAsk --settings "$DIR/settings.json" </dev/null 2>&1 ) > "$DIR/session.json"
 
@@ -261,6 +262,7 @@ HOOK_SH
     echo
     echo "── mode: autopilot ── shipped hook + a project gate blocking beside it (max-turns $turns)"
     ( cd "$DIR" && claude -p "Work the run in .efficiency/run.md, starting with T1." \
+        --setting-sources project,local \
         --model haiku --max-turns "$turns" --max-budget-usd 0.50 --output-format json \
         --permission-mode acceptEdits --settings "$DIR/settings.json" </dev/null 2>&1 ) > "$DIR/session.json"
 

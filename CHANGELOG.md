@@ -15,6 +15,25 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Changed — every probe session is isolated from the developer's own settings
+
+Until today only two of the headless probes passed `--setting-sources project,local`, so the rest
+ran with whatever `~/.claude/settings.json` held — on the author's machine a personal output style
+and an `autoMode` block. All thirteen sessions in ten probes now pass it, and
+`scripts/lib/check-probe-flags.py` fails the gate on a `claude -p` that does not, at no cost: it
+reads the probes, it runs nothing. Selftest extended, mutation-tested by stripping the flag from
+`stop-cap.sh`.
+
+Every probe was re-run on 2.1.302 isolated. §§ 2, 3, 7, 15, 16 and 17 of
+`docs/verified-platform-behaviour.md` came back unchanged. § 9 moved in two `Bash` cells, both at
+the control write rather than at `.claude/`, so the layout it decided stands.
+
+§ 14 was re-run in two arms on the same day and version, isolated and not. The three skills that
+were hard to reach rose together isolated, 21/36 against 13/36, and the arm with the developer's
+settings reproduces the October table. A consistent direction rather than a proof, and recorded as
+such. The same run found that a headless session can call `ScheduleWakeup` and outlive
+`--max-turns` by half an hour, so `skill-auto-invoke.sh` now withholds it.
+
 ## [0.20.0] — 2026-10-18
 
 ### Added — the status line shows the session, not only the backlog

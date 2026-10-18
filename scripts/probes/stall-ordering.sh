@@ -93,6 +93,7 @@ PY
 
 echo "max_turns=$MAX_TURNS  hook=$HOOK"
 OUT=$( cd "$DIR" && claude -p "Work the run in .efficiency/run.md, starting with T1." \
+         --setting-sources project,local \
          --model haiku --max-turns "$MAX_TURNS" --max-budget-usd 0.50 \
          --permission-mode acceptEdits --settings "$DIR/settings.json" </dev/null 2>&1 )
 

@@ -14,6 +14,9 @@ is governed by the permission mode, not by the tool, and it does not hold in all
 Added: **2026-10-11** · Claude Code **2.1.296** — § 17, stopping a turn from the inside.
 Re-measured: **2026-10-11** · Claude Code **2.1.296** — § 2 **re-run against the real autopilot** and
 extended, § 3 row A2 and § 4 confirmed. The probe the original measurement never committed now exists.
+Re-measured: **2026-10-18** · Claude Code **2.1.302** — every headless probe re-run with the developer's
+`~/.claude/settings.json` shut out by `--setting-sources project,local`, which until then had reached
+every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells moved; § 14 re-measured.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -100,6 +103,10 @@ re-derived. Re-measured 2026-10-11 on Claude Code 2.1.296 by
 September figure of 9 invocations each, `autopilot` mode is the table above, run twice with identical
 numbers.*
 
+*Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/stop-coexistence.sh both`, with
+every session isolated by `--setting-sources project,local`: 9 invocations each in cap mode, guard 4
+at block 6 beside a blocking project gate. Unchanged.*
+
 ## 3. The block cap — and the condition that governs it
 
 This is the finding that decides how much autonomy is actually available, and the documented
@@ -179,6 +186,10 @@ never.
 
 *Measured 2026-10-10 on Claude Code 2.1.296. Offline half: `python3 hooks/autopilot-stop.py
 --selftest`. Live half: `bash scripts/probes/stall-ordering.sh`.*
+
+*Re-measured 2026-10-18 on Claude Code 2.1.302, with every session isolated by `--setting-sources
+project,local`: `stop-cap.sh` 9 / 6 / 6 in stall, read and write modes, `stall-ordering.sh` stopped
+by the framework at block 6. Unchanged.*
 
 ## 4. Blocking contract
 
@@ -282,6 +293,10 @@ The consequence that outlived the finding: **confirm a hook actually ran before 
 about what it did.** A clean zero is produced by a suppressed hook, a hook with no trigger, and a
 broken probe alike, and only one of those is a platform finding.
 
+*Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/settings-trust.sh`, with every
+session isolated by `--setting-sources project,local`: a fresh directory's project hook fires, as
+does the same hook through `--settings`. The expiry stands.*
+
 ## 8. How a plugin actually reaches a project
 
 Measured, because the shape that looks obvious is wrong.
@@ -325,6 +340,20 @@ and the `.claude/` write does not, the path is the reason and nothing else can b
 
 Twelve cells, no inconclusive ones: in every cell the control write into the project root succeeded,
 so every refusal above is attributable to the path.
+
+**Re-measured 2026-10-18 on 2.1.302**, with the developer's settings shut out by
+`--setting-sources project,local`. `Write` and `Edit` are unchanged in all four modes. Two `Bash` cells
+moved, and both moved at the control, not at the path:
+
+- **`dontAsk` · `Bash`:** nothing written anywhere, in 3 of 3 sessions with and without the flag.
+  The mode now refuses the tool outright even though `--allowedTools` names it — a refusal of `Bash`,
+  which says nothing about `.claude/`.
+- **`auto` · `Bash`:** wrote both places in 1 session of 6, and nowhere in the other five; the
+  auto-mode classifier declined the command before the path came into it. The one that wrote ran with
+  the developer's own settings, but so did one that did not, so the flag is not shown to be the cause.
+
+Neither touches what the layout rests on: `Write` and `Edit` into `.claude/` are refused under
+`acceptEdits` and `dontAsk`, and allowed under `auto` and `bypassPermissions`.
 
 **The tool is not the variable.** `Write`, `Edit` and `Bash` behave identically within a mode, which
 rules out the obvious explanation that one tool has a path guard the others lack.
@@ -567,6 +596,34 @@ therefore tests a description stripped of every aid — a harder test than produ
 a miss here is not automatically a miss there. It also means the framework's most important skill is
 currently carried by a hook rather than by its description.
 
+### Re-measured 2026-10-18 on 2.1.302, with and without the developer's settings
+
+The table above was taken with the author's `~/.claude/settings.json` reaching every session — a
+personal output style among it. Re-run the same day on the same version in two arms: isolated by
+`--setting-sources project,local`, as the probe now always is, and with the settings let back in.
+Six trials per cell in each arm. Only the three skills that were not 3/3 are shown; the other four
+and both controls did not move.
+
+| skill | isolated en · it | with user settings en · it | together |
+|---|---|---|---|
+| `autopilot` | 0/6 · 3/6 | 1/6 · 0/6 | 3/12 against 1/12 |
+| `fanout` | 2/6 · 6/6 | 0/6 · 5/6 | 8/12 against 5/12 |
+| `plan-run` | 6/6 · 4/6 | 4/6 · 3/6 | 10/12 against 7/12 |
+
+**The arm with user settings reproduces the October table; the isolated arm is higher on all three.**
+21/36 against 13/36, every skill moving the same way. That is a consistent direction, not a proof:
+each cell alone is within what six trials can do by chance. What it does establish is that the
+October numbers were a measurement of one configured machine as much as of the descriptions, and
+that the three "unreachable" skills are less unreachable than they looked. The pattern above —
+reached by what they do, missed when the model would rather do the task itself — survives:
+the autopilot in English is still 0/6 isolated.
+
+**A headless session can outlive `--max-turns`.** One `run` trial launched its reviewer in the
+background and called `ScheduleWakeup` to wait for it, then scheduled another wakeup thirty minutes
+out. Under `-p` the process stays alive until a scheduled wakeup fires, so the probe sat behind that
+one session until it was killed. `--max-turns` bounds turns, not wall-clock time. The probe now
+withholds `ScheduleWakeup` and `CronCreate`.
+
 **Measured on Haiku**, because a probe has to be cheap enough to re-run. `MODEL=sonnet TRIALS=5`
 re-measures it against a larger model; whether selection behaves the same there is not known.
 
@@ -628,6 +685,10 @@ noticed.
 hand-written without `task_spend_max_micro_usd`, so `spend_max` seeded to 0 and the entire spend
 guard — including its fail-closed branch — never executed. A run file missing its ceilings has no
 ceilings, silently, and the symptom surfaces minutes later and somewhere else.*
+
+*Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/run-routing.sh`, with every
+session isolated by `--setting-sources project,local`: implementer-fast, reviewer, implementer-fast,
+three tasks closed, gate green. Unchanged.*
 
 ## 16. `haiku`, `sonnet` and `opus` are not model ids, and nobody was checking what they meant
 
@@ -698,6 +759,11 @@ catches it, which is what the `verified` date and its 90-day staleness warning e
 
 *Measured 2026-10-10 on Claude Code 2.1.296. Prices verified the same day against
 `platform.claude.com/docs/en/about-claude/pricing`.*
+
+*Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/model-ids.sh`, with every session
+isolated by `--setting-sources project,local`: the same three ids, all priced. `resolved` in the
+cost table still records 2.1.296, so the gate reports the mapping unverified until it is updated —
+that is a change to a shipped file and waits for the next release.*
 
 ## 17. A turn can be stopped from the inside, and its spend can be read while it runs
 
@@ -789,6 +855,11 @@ the ceiling: a run can overshoot by whatever it spends inside it.
 *Measured 2026-10-11 on Claude Code 2.1.296. The `midturn-subagent.sh` verdict was wrong twice before
 it was right — once on the tool's name and once on the asynchrony above — and both times it reported
 a confident negative. A probe that can only fail by saying "nothing happened" is one to distrust.*
+
+*Re-measured 2026-10-18 on Claude Code 2.1.302, with every session isolated by `--setting-sources
+project,local`: the transcript is incremental (1 → 1 → 3 usage rows, Stop saw 4), denials are
+honoured with one refused call of overshoot, and a subagent's own tool call reaches the hook
+carrying the parent's transcript. Unchanged.*
 
 ## 18. A plugin can ship an output style, and only its prefixed name reaches it
 

@@ -102,6 +102,7 @@ run_cell() {
     # session has not read, and that refusal has nothing to do with the path.
     # shellcheck disable=SC2086
     ( cd "$dir" && claude -p "$(prompt_for "$tool")" \
+        --setting-sources project,local \
         --model haiku --max-turns 10 --max-budget-usd 0.30 \
         --permission-mode "$mode" \
         --allowedTools "$tool" Read \
