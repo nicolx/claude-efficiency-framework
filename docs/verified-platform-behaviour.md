@@ -625,6 +625,21 @@ out. Under `-p` the process stays alive until a scheduled wakeup fires, so the p
 one session until it was killed. `--max-turns` bounds turns, not wall-clock time. The probe now
 withholds `ScheduleWakeup` and `CronCreate`.
 
+### Decided 2026-10-18: an honest limit, not a wording problem
+
+The three misses are left as they are, each for its own reason, and no description is reworded to
+chase them — the table above is the evidence that wording is not what moves them.
+
+- **`fanout`** missing a plain request is the behaviour it asks for. It spends money and enlarges
+  the diff, and its description says never to start one unasked. A skill that fired whenever the
+  model saw four similar edits would be the defect.
+- **`plan-run`** at 10/12 isolated is reached often enough, and the one place it is missed — the
+  model drafts the plan itself — still produces a plan for the developer to read.
+- **`autopilot`** is carried by the `UserPromptSubmit` hook, and that is the design, not a
+  stopgap. Arming it is the one action whose absence costs the developer a run, so it is not left
+  to a description the model can reasonably decline: the hook names it on every prompt in an
+  adopting project. What this section does not measure is that hook — under `-p` it never fires.
+
 **Measured on Haiku**, because a probe has to be cheap enough to re-run. `MODEL=sonnet TRIALS=5`
 re-measures it against a larger model; whether selection behaves the same there is not known.
 

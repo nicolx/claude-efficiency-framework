@@ -15,6 +15,17 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Decided — two backlog items closed as limits, not as work
+
+A release cannot be verified by the session that wrote it, because hooks, the charter and output
+styles load at session start. Accepted rather than engineered around: CLAUDE.md rule 6 states it,
+and `scripts/release.sh` now ends by saying a fresh session is the only check that a new rule is
+followed.
+
+The three skills that are hard to reach by description alone stay that way, with a reason each in
+§ 14 of `docs/verified-platform-behaviour.md`: `fanout` is meant not to start unasked, `plan-run` is
+reached 10/12, and the autopilot is carried by the `UserPromptSubmit` hook by design.
+
 ### Changed — every probe session is isolated from the developer's own settings
 
 Until today only two of the headless probes passed `--setting-sources project,local`, so the rest

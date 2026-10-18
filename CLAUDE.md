@@ -101,6 +101,12 @@ gate checked. `check-install.sh` validates this disk, and nobody installs this d
 that is untracked or gitignored works here and is absent there, and the hook it belongs to leaves no
 trace when it does not run.
 
+What no script can close: the session that writes a release never runs it. Hooks, the charter and
+output styles load at session start, so a rule added today is followed only by a session opened
+after it. That is accepted rather than engineered around — a headless session could prove the
+charter is injected, not that it is obeyed — and `release.sh` ends by saying so. Watch one reply in
+a fresh session before announcing a release that changes behaviour.
+
 ### 7. One fact, one place
 
 A path written in prose is a live reference. A statement duplicated in two files will be wrong in

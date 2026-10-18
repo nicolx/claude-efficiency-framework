@@ -134,4 +134,10 @@ if [ "$UNVERIFIED" = yes ]; then
 else
     printf '\033[1m%s is live\033[0m — origin resolves %s, and serves the tree that was checked.\n' "$TAG" "$TAG"
 fi
+
+# Hooks, the charter and output styles load at session start, so the session
+# that wrote this release has been running the previous one all along. Nothing
+# here can check that the new rules are followed; only a session started after
+# them can, and that is a person opening one.
+printf '  Not yet seen in use: open a fresh session in an adopting project and watch one reply.\n'
 exit 0
