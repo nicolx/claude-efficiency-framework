@@ -15,6 +15,15 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Fixed — `[0.12.0]` now says it was never released on its own
+
+Repo-internal: `CHANGELOG.md` only.
+
+The changelog has an entry for 0.12.0, but `VERSION` never held that number and git has no tag for
+it, so the changelog and the tag list looked inconsistent. A note under the entry now explains this.
+Creating a tag after the fact would have made things worse: there is no commit where `VERSION` reads
+0.12.0, so `check-release-tag.py` would reject that tag as misplaced.
+
 ### Fixed — `[Unreleased]` described work consumers already had
 
 Repo-internal: `scripts/`, `CHANGELOG.md` and `CLAUDE.md` only.
@@ -573,6 +582,10 @@ become one `grep` and one forty-line slice. The framework says that, rather than
 - The README still credited `init` with running the detection. The hook has done it since 0.11.0.
 
 ## [0.12.0] — 2026-10-10
+
+> **Never released on its own.** `VERSION` went from 0.11.0 straight to 0.13.0 in `0b5e8be`, which
+> shipped this entry and 0.13.0's together, so there is no `v0.12.0` tag and none is missing. To get
+> this work, pin `v0.13.0` or later.
 
 ### Added — the backlog is now permanently visible, not announced once
 
