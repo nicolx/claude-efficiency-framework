@@ -478,8 +478,9 @@ Three of those decide the design, and each one would have been guessed wrong:
 
 The payload is the richest of any surface in this framework. It carries `cost.total_cost_usd` for
 the whole session, `rate_limits.five_hour.used_percentage`, `context_window.used_percentage`,
-`model.id`, `transcript_path`, `session_id` and `workspace.repo`. None of it is used yet: a status
-line that says four things says nothing.
+`model.id`, `transcript_path`, `session_id` and `workspace.repo`. Since 0.20.0 the first line of
+the status line uses the model, context, cost, duration and five-hour fields — because a project's
+`statusLine` overrides the developer's own, and a backlog-only bar took their context gauge away.
 
 One inconsistency worth knowing: the payload reported `version: 2.1.289` while `claude --version`
 said `2.1.296` on the same machine, at the same moment. Do not use the payload's `version` to decide
@@ -789,6 +790,35 @@ the ceiling: a run can overshoot by whatever it spends inside it.
 it was right — once on the tool's name and once on the asynchrony above — and both times it reported
 a confident negative. A probe that can only fail by saying "nothing happened" is one to distrust.*
 
+## 18. A plugin can ship an output style, and only its prefixed name reaches it
+
+Measured **2026-10-18** on **2.1.302** with `scripts/probes/plugin-output-style.sh`: a throwaway
+plugin ships one style whose only instruction is to end every reply with a token no model writes by
+accident, and each case selects it a different way. Two Haiku sessions per case.
+
+| Selected by | `init` reports | Token in the reply |
+|---|---|---|
+| nothing (control) | `default` | 0/2 |
+| `--settings` `outputStyle: "Canary"` | `Canary` | **0/2** |
+| `--settings` `outputStyle: "canaryplug:Canary"` | `canaryplug:Canary` | 2/2 |
+| `.claude/settings.json` `outputStyle: "canaryplug:Canary"` | `canaryplug:Canary` | 2/2 |
+| `.claude/settings.local.json` `outputStyle: "canaryplug:Canary"` | `canaryplug:Canary` | 2/2 |
+
+Three findings, two of which would have been guessed wrong:
+
+- **The name is `<plugin>:<Name>`.** The bare name falls back to the default with no warning. So
+  `/efficiency:init` writes `efficiency:Signals`, and nothing else would work.
+- **The `init` event is not evidence.** Its `output_style` field echoes whatever it was given — on
+  the exploratory run it reported `NoSuchStyle` as is. Only the model's behaviour says whether a
+  style took, which is why the probe uses a canary rather than reading the field.
+- **`--setting-sources project,local` keeps the developer's own style out.** The control ran
+  `default` on a machine whose `~/.claude/settings.json` selects a personal style. That style had
+  been reaching every probe session until now, measured in the init events of a
+  `skill-auto-invoke.sh` run the same day, so that probe now passes the flag.
+
+The plugin needs no manifest entry: an `output-styles/` directory beside `.claude-plugin/` is found
+on its own.
+
 ## Re-running these measurements
 
 ```bash
@@ -799,6 +829,7 @@ bash scripts/probes/transcript-shape.sh <path-to-transcript.jsonl>  # show subag
 bash scripts/probes/model-ids.sh           # which id each routing alias resolves to, and whether it is priced
 bash scripts/probes/statusline.sh install   # then start a session, look at the bottom, and `show`
 bash scripts/probes/pdf-token-cost.sh make # build the test PDF; read it in a session, then `measure <transcript>`
+bash scripts/probes/plugin-output-style.sh # which name selects a plugin's output style
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook

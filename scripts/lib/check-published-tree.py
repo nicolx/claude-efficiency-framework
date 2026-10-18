@@ -42,7 +42,8 @@ import sys
 # The shipped roots, as `CLAUDE.md`'s table defines them: everything a consumer
 # session loads. `scripts/`, `docs/` and `CLAUDE.md` are deliberately absent —
 # they never travel.
-SHIPPED = ("AUTONOMY-CHARTER.md", "agents", "skills", "hooks", "templates", ".claude-plugin")
+SHIPPED = ("AUTONOMY-CHARTER.md", "agents", "skills", "hooks", "output-styles", "templates",
+           ".claude-plugin")
 
 # Build artefacts and editor droppings are not shipped files that went missing.
 JUNK = re.compile(r"(^|/)(__pycache__|\.DS_Store)(/|$)|\.pyc$")

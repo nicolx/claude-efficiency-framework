@@ -124,7 +124,7 @@ class Project:
             json.dump(data, fh)
         return self
 
-    def invoke_statusline(self, columns="120", script=None):
+    def invoke_statusline(self, columns="120", script=None, session=None, colour=False):
         """Invoke the status line exactly as Claude Code does.
 
         Measured in scripts/probes/statusline.sh: the payload arrives on stdin,
@@ -132,9 +132,12 @@ class Project:
         set in the environment. `script` points at the project's own deployed
         copy when the case is about deployment rather than about rendering.
         """
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir,
-                   COLUMNS=columns, NO_COLOR="1")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir, COLUMNS=columns)
+        env.pop("NO_COLOR", None)
+        if not colour:
+            env["NO_COLOR"] = "1"
         payload = {"cwd": self.dir, "workspace": {"project_dir": self.dir}}
+        payload.update(session or {})
         done = subprocess.run([sys.executable, script or STATUSLINE],
                               input=json.dumps(payload), capture_output=True,
                               text=True, env=env, timeout=30)
@@ -1504,6 +1507,87 @@ def _():
     _c, out = p.invoke_statusline()
     check("an empty backlog still prints, so a blank line means broken",
           "backlog clear" in out, "got %r" % out)
+    return p
+
+
+# The fields Claude Code sends a status line, as measured in § 12.
+SESSION_PAYLOAD = {
+    "model": {"display_name": "Opus 5.5"},
+    "context_window": {"used_percentage": 42.4},
+    "cost": {"total_cost_usd": 1.234, "total_duration_ms": 25 * 60000},
+    "rate_limits": {"five_hour": {"used_percentage": 61}},
+}
+
+
+@case("the session line comes first, above the backlog, never on its line")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline(session=SESSION_PAYLOAD)
+    lines = out.rstrip("\n").split("\n")
+    check("the session line comes first, above the backlog, never on its line",
+          len(lines) == 5
+          and all(s in lines[0] for s in ("Opus 5.5", "42%", "$1.23", "⏱ 25m", "5h 61%"))
+          and "backlog" not in lines[0]
+          and "4 open" in lines[1],
+          "got %r" % (lines,))
+    return p
+
+
+@case("a payload without session fields prints no session line")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline(session={"model": {}})
+    check("a payload without session fields prints no session line",
+          out.split("\n")[0].startswith("⚠ backlog: 4 open"), "got %r" % out.split("\n")[0])
+    return p
+
+
+@case("the branch is read from .git/HEAD, a worktree's pointer and a detached head")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    gitdir = os.path.join(p.dir, ".git")
+    os.makedirs(gitdir, exist_ok=True)
+    with open(os.path.join(gitdir, "HEAD"), "w") as fh:
+        fh.write("ref: refs/heads/feature/statusline\n")
+    _c, normal = p.invoke_statusline(session=SESSION_PAYLOAD)
+    with open(os.path.join(gitdir, "HEAD"), "w") as fh:
+        fh.write("0123456789abcdef0123456789abcdef01234567\n")
+    _c, detached = p.invoke_statusline(session=SESSION_PAYLOAD)
+    real = os.path.join(p.dir, "elsewhere")
+    os.rename(gitdir, real)
+    with open(gitdir, "w") as fh:
+        fh.write("gitdir: elsewhere\n")
+    with open(os.path.join(real, "HEAD"), "w") as fh:
+        fh.write("ref: refs/heads/in-a-worktree\n")
+    _c, worktree = p.invoke_statusline(session=SESSION_PAYLOAD)
+    check("the branch is read from .git/HEAD, a worktree's pointer and a detached head",
+          "⎇ feature/statusline" in normal and "⎇ 0123456" in detached
+          and "⎇ in-a-worktree" in worktree,
+          "got %r / %r / %r" % (normal.split("\n")[0], detached.split("\n")[0],
+                                worktree.split("\n")[0]))
+    return p
+
+
+@case("a narrow terminal drops session parts from the least useful end, gauge last")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, out = p.invoke_statusline(columns="44", session=SESSION_PAYLOAD)
+    head = out.split("\n")[0]
+    check("a narrow terminal drops session parts from the least useful end, gauge last",
+          len(head) <= 40 and "42%" in head and "Opus 5.5" in head
+          and "⏱" not in head,
+          "got %r (%d chars)" % (head, len(head)))
+    return p
+
+
+@case("NO_COLOR is honoured on the session line, and colour is emitted without it")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(BACKLOG_FIXTURE)
+    _c, plain = p.invoke_statusline(session=SESSION_PAYLOAD)
+    _c, coloured = p.invoke_statusline(session=SESSION_PAYLOAD, colour=True)
+    check("NO_COLOR is honoured on the session line, and colour is emitted without it",
+          "\033[" not in plain and "\033[" in coloured.split("\n")[0],
+          "plain=%r coloured=%r" % (plain.split("\n")[0], coloured.split("\n")[0]))
     return p
 
 

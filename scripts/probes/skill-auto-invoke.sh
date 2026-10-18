@@ -48,6 +48,12 @@
 # by firing constantly. A skill that matches "what is 17 times 23" is as broken
 # as one that never matches anything.
 #
+# The sessions run with `--setting-sources project,local`, so nothing in the
+# developer's own ~/.claude/settings.json reaches them. Before 2026-10-18 it
+# did: every session on the author's machine ran their personal output style,
+# visible in the `init` event and in replies written in Italian to English
+# requests. § 18 measures that the flag keeps it out.
+#
 # The sessions run under `bypassPermissions`, which is not laziness about the
 # fence: under `dontAsk` the platform denies `Bash` and `Edit` outright, and a
 # model that cannot write will not invoke a skill whose whole action is to write.
@@ -255,6 +261,7 @@ run_case() {
       claude -p "$prompt" \
         --model "$MODEL" --max-turns 10 --max-budget-usd 0.40 \
         --permission-mode bypassPermissions \
+        --setting-sources project,local \
         --plugin-dir "$PLUGIN" \
         --output-format stream-json --verbose </dev/null >"$dir/stream.json" 2>&1 )
 }

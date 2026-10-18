@@ -20,10 +20,20 @@ with `scripts/probes/statusline.sh` on 2.1.296 — see § 12 of
   * a settings change takes effect **live**, without restarting the session —
     unlike a hook, which is bound at session start.
 
-It is deliberately only about the backlog. The payload also carries
-`cost.total_cost_usd`, `rate_limits` and `context_window`, and the autopilot's
-own run state is a file away; none of that is here, because a status line that
-says four things says nothing.
+It used to be only about the backlog, on the argument that a status line saying
+four things says nothing. That held until it met a real developer: a project's
+`statusLine` overrides the one in ~/.claude/settings.json, so adopting the
+framework silently took away whatever bar the developer already had — on this
+repo's own author, the context gauge they used to decide when to compact. How
+full the context is, what the session has spent and how close the five-hour
+limit is are efficiency signals, which is this framework's whole subject.
+
+So the first line is the session, the lines below it are the backlog, and the
+two never share a line. The session line is printed only when the payload
+carries those fields, and it is cut from the least useful end on a narrow
+terminal. Nothing here shells out: the branch is read from `.git/HEAD`, and the
+dirty marker a `git status` would give is deliberately absent, because it walks
+the whole tree on every render.
 
 Never fatal, and never noisy: any failure prints nothing and exits 0, and a
 project that never adopted the framework gets no line at all.
@@ -49,9 +59,117 @@ BREAK = re.compile(r"(?<=[.:;])\s+|\s+—\s+")
 MIN_HEADLINE = 24
 
 
+# Palette for the session line. Truecolor when the terminal says it renders it,
+# the plain eight-colour equivalents otherwise.
+PALETTE = {
+    "violet": ("#bb9af7", "35"), "blue": ("#7aa2f7", "34"), "cyan": ("#7dcfff", "36"),
+    "green": ("#9ece6a", "32"), "yellow": ("#e0af68", "33"), "red": ("#f7768e", "31"),
+    "grey": ("#565f89", "2"),
+}
+
+
+def colour_off():
+    return bool(os.environ.get("NO_COLOR")) or os.environ.get("TERM", "") == "dumb"
+
+
+def paint(name, text):
+    """`text` in the palette colour `name`, or bare when colour is off."""
+    if colour_off():
+        return text
+    hexa, basic = PALETTE[name]
+    if os.environ.get("COLORTERM", "") in ("truecolor", "24bit"):
+        code = "38;2;%d;%d;%d" % tuple(int(hexa[i:i + 2], 16) for i in (1, 3, 5))
+    else:
+        code = basic
+    return "\033[%sm%s\033[0m" % (code, text)
+
+
+def get(payload, *keys):
+    for key in keys:
+        if not isinstance(payload, dict):
+            return None
+        payload = payload.get(key)
+    return payload
+
+
+def branch(project):
+    """The checked-out branch, read from the file rather than from `git`.
+
+    A worktree's `.git` is a file pointing at the real git dir. A detached HEAD
+    shows the short hash.
+    """
+    gitdir = os.path.join(project, ".git")
+    try:
+        if os.path.isfile(gitdir):
+            with open(gitdir) as fh:
+                ref = fh.read().strip()
+            if not ref.startswith("gitdir:"):
+                return ""
+            gitdir = os.path.join(project, ref[len("gitdir:"):].strip())
+        with open(os.path.join(gitdir, "HEAD")) as fh:
+            head = fh.read().strip()
+    except OSError:
+        return ""
+    if head.startswith("ref: refs/heads/"):
+        return head[len("ref: refs/heads/"):]
+    return head[:7]
+
+
+def session_line(payload, project, cols):
+    """Model, folder, branch, context, spend, duration, five-hour limit.
+
+    None when the payload carries none of the session fields, so a caller that
+    sends a bare payload gets the backlog alone, exactly as before. Each part
+    is (priority, plain, painted); on a narrow terminal the lowest priority
+    goes first, so the context gauge is the last thing to be dropped.
+    """
+    parts = []
+    model = get(payload, "model", "display_name")
+    if model:
+        parts.append((2, "◆ " + model, paint("violet", "◆ " + model)))
+    folder = os.path.basename(project.rstrip("/"))
+    if folder:
+        parts.append((6, "▸ " + folder, paint("blue", "▸ " + folder)))
+    name = branch(project)
+    if name:
+        parts.append((5, "⎇ " + name, paint("green", "⎇ " + name)))
+    pct = get(payload, "context_window", "used_percentage")
+    if pct is not None:
+        pct = float(pct)
+        tone = "green" if pct < 50 else "yellow" if pct < 80 else "red"
+        filled = min(10, max(0, int(round(pct / 10))))
+        bar = "█" * filled + "░" * (10 - filled)
+        label = "%.0f%%" % pct
+        parts.append((1, bar + " " + label,
+                      paint(tone, "█" * filled) + paint("grey", "░" * (10 - filled))
+                      + " " + paint(tone, label)))
+    cost = get(payload, "cost", "total_cost_usd")
+    if cost is not None:
+        text = "$%.2f" % float(cost)
+        parts.append((3, text, paint("cyan", text)))
+    ms = get(payload, "cost", "total_duration_ms")
+    if ms:
+        text = "⏱ %dm" % (int(ms) // 60000)
+        parts.append((7, text, paint("grey", text)))
+    limit = get(payload, "rate_limits", "five_hour", "used_percentage")
+    if limit is not None:
+        limit = float(limit)
+        text = "5h %.0f%%" % limit
+        parts.append((4, text, paint("red" if limit >= 80 else "yellow" if limit >= 50
+                                     else "grey", text)))
+
+    # Without any session field this is not a session line, just a folder name.
+    if not any(p for p, _, _ in parts if p in (1, 2, 3, 4)):
+        return None
+    sep = " │ "
+    while len(parts) > 1 and len(sep.join(t for _, t, _ in parts)) > cols:
+        parts.remove(max(parts, key=lambda part: part[0]))
+    return paint("grey", sep).join(painted for _, _, painted in parts)
+
+
 def colours():
     """ANSI codes, or empty strings when the terminal says not to."""
-    if os.environ.get("NO_COLOR") or os.environ.get("TERM", "") == "dumb":
+    if colour_off():
         return "", "", ""
     return "\033[1;33m", "\033[2m", "\033[0m"
 
@@ -129,6 +247,10 @@ def main():
 
     warn, dim, off = colours()
     cols = width()
+
+    line = session_line(payload, project, cols)
+    if line:
+        print(line)
 
     # An empty backlog prints a line too. A status line that goes blank when
     # there is nothing to report is indistinguishable from one that has broken,

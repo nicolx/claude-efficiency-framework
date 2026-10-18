@@ -100,16 +100,28 @@ open count and the top three items, re-rendered under the prompt on every update
 they are open.
 
 ```text
+◆ Opus 5.5 │ ▸ my-project │ ⎇ main │ ████░░░░░░ 38% │ $2.41 │ ⏱ 65m │ 5h 22%
 ⚠ backlog: 12 open · oldest 2026-10-10 · +9 more · /efficiency:backlog
   1. /efficiency:init cannot write the permission fence
   2. The session that builds a release can never run it
   3. Model routing has never been observed working
 ```
 
-It is one file read per render and nothing else, because it is re-run every second or so — measured,
-along with the fact that all of its lines are shown and that it takes effect without restarting the
-session, in § 12 of `docs/verified-platform-behaviour.md`. An existing `statusLine` is never
-replaced, and `statusline: off` in the policy frontmatter ends the subject.
+The first line is the session: model, branch, how full the context is, what has been spent, how close
+the five-hour limit is. It is there because a project's `statusLine` overrides your own, so a
+backlog-only bar would quietly take away the gauge you decide to compact by.
+
+It reads a few small files per render and runs nothing, not even `git`, because it is re-run every
+second or so — measured, along with the fact that all of its lines are shown and that it takes effect
+without restarting the session, in § 12 of `docs/verified-platform-behaviour.md`. An existing
+`statusLine` is never replaced, and `statusline: off` in the policy frontmatter ends the subject.
+
+**And replies say where you are needed.** `init` also offers the `Signals` output style: every reply
+with more than one point opens with the result in a line, then splits into short sections behind
+coloured markers — 🟢 outcome, 🔴 problem, 🟡 warning, 🟣 your call, 🔵 next step — with the labels
+in your language. The 🟣 section is the point: a decision only you can make never sits in the middle
+of a paragraph. It goes in `.claude/settings.local.json` as `efficiency:Signals`, because it is a
+personal preference rather than a project rule.
 
 Each entry carries a `found while:` clause, because a fresh session has none of the context that
 made the thing obvious — and that is the cheapest way to hand it back.
@@ -437,7 +449,10 @@ documentation:
   event. This is what makes spend measurable at all.
 - **A status line renders every line its command prints**, is re-run on conversation updates rather
   than once per turn, and takes effect without restarting the session. That is what makes a four-line
-  backlog reminder possible at all — and what makes it a single file read.
+  backlog reminder possible at all — and what makes it a few file reads and no subprocess.
+- **A plugin can ship an output style, but only by its prefixed name.** `efficiency:Signals` resolves;
+  `Signals` silently falls back to the default, while the session's `init` event still reports the
+  name it was given — so the only evidence a style took is what the model writes.
 - **Subagent turns are not in the main transcript.** `isSidechain` is in the schema and reads like a
   promise, but they live in `<session>/subagents/agent-*.jsonl`. On the session that built this
   framework they were **17% of real spend** — and a ceiling blind to them is a ceiling on the cheap
@@ -477,6 +492,7 @@ If your project declares a standard, the reviewer applies it too. If not, it sti
 .claude-plugin/   plugin and marketplace manifests
 agents/           implementer-fast (haiku) · architect (opus) · reviewer (opus)
 skills/           init · plan-run · run · fanout · run-report
+output-styles/    Signals, the opt-in reply format
 hooks/            the autopilot Stop hook and its mid-turn half, the SessionStart charter,
                   the spend meter, the backlog status line
 templates/        the policy and permission scaffolding a project owns

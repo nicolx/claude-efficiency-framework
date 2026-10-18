@@ -15,6 +15,58 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.20.0] — 2026-10-18
+
+### Added — the status line shows the session, not only the backlog
+
+A project's `statusLine` overrides the one in `~/.claude/settings.json`. So adopting the framework
+replaced whatever bar the developer already had with one that showed only the backlog. On this
+repo's own author that meant losing the context gauge they used to decide when to compact.
+
+`hooks/statusline.py` now prints the session on its first line: model, folder, branch, how full the
+context is, what the session has spent, its duration and the five-hour limit. The backlog stays on
+the lines below and never shares a line with the session. On a narrow terminal the session line
+drops its least useful parts first, and the context gauge is the last thing to go.
+
+It still runs no subprocess. The branch is read from `.git/HEAD`, which covers worktrees and a
+detached head. There is no marker for uncommitted changes, because `git status` would walk the whole
+tree every second. A payload without session fields gets the backlog alone, exactly as before.
+Five new selftest cases, four of them mutation-tested.
+
+### Added — `Signals`, an opt-in reply format
+
+`output-styles/signals.md`. A reply with more than one point opens with its result in one line, then
+splits into short sections behind coloured markers: 🟢 outcome, 🔴 problem, 🟡 warning, 🟣 your call,
+🔵 next step. The labels are written in the developer's language and the markers never change. The
+🟣 section matters most, because a decision only the developer can make no longer sits in the middle
+of a paragraph.
+
+`/efficiency:init` offers it in one line, and only when no `outputStyle` is already set. It writes it
+to `.claude/settings.local.json`, because a reply format is a personal preference and not a project
+rule. The name must be `efficiency:Signals`: measured in § 18, the bare name falls back to the
+default without a word.
+
+### Repo-internal — probes and changelog
+
+No consumer session behaves differently for any of the entries below. They change only `scripts/`,
+`docs/` and `CHANGELOG.md`, and are filed here because this is the tag they ship in.
+
+### Added — whether a plugin can ship an output style, measured
+
+`scripts/probes/plugin-output-style.sh` and § 18. A throwaway plugin ships a style whose only
+instruction is to end every reply with a canary token, and five cases select it in different ways.
+Only the `<plugin>:<Name>` form works. The session's `init` event is not evidence: it echoes any
+name, including one that does not exist.
+
+### Fixed — the developer's own settings were reaching every probe session
+
+`skill-auto-invoke.sh` claims to measure a skill description on its own. On the author's machine
+every session it started also ran their personal output style. This showed in the `init` events, and
+in replies written in Italian to English requests. The probe now runs with
+`--setting-sources project,local`, and § 18 measures that the flag keeps the style out. The other
+headless probes have the same exposure and are filed in the backlog: changing an instrument without
+re-running what it measured would leave the numbers in the docs without a probe behind them.
+
 ### Changed — the auto-invocation probe runs a rolling queue
 
 Repo-internal: `scripts/probes/skill-auto-invoke.sh` only.

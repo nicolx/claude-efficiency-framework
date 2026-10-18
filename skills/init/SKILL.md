@@ -170,6 +170,29 @@ invasive write the framework makes, so treat it that way:
   status line is read per render, not bound at session start. The script it
   names is written by the `SessionStart` hook, so it appears from the next
   session on; say that if the line is blank at first.
+
+  The first line it prints is the session itself: model, branch, how full the
+  context is, what the session has spent, the five-hour limit. Say so when
+  offering it, because a project's `statusLine` overrides the developer's own
+  in `~/.claude/settings.json` — if they already have a personal bar, this one
+  replaces it here, and they should know what it shows before saying yes.
+- **also offer the `Signals` output style**, in the same pass and in one line:
+  replies open with the result, then split into short sections behind coloured
+  markers — outcome, problem, warning, the developer's call, next step — so the
+  one decision they are needed for cannot hide in a paragraph. The labels are
+  written in the developer's language. It is a personal preference, not a
+  project rule, so it goes in **`.claude/settings.local.json`**, which is not
+  committed:
+
+  ```json
+  { "outputStyle": "efficiency:Signals" }
+  ```
+
+  The name needs the `efficiency:` prefix — without it the platform resolves
+  nothing and falls back to the default silently. Add it **only if no
+  `outputStyle` is set** in either project settings file, for the same reason
+  as the status line. It applies from the next session: a style is part of the
+  system prompt, which is fixed when the session starts.
 - if the file has rules that conflict with what you would add, say so and let
   the developer resolve it
 
