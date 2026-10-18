@@ -202,12 +202,13 @@ else
     skip "skill trigger phrases" "python3 not found"
 fi
 
-# ── 4b. every measured claim says when it was measured ───────────────────────
+# ── 4b. every measured claim says when, on what, and how to re-measure it ────
 # Section 7 was wrong for a month because nobody could see it had expired: eight
-# of the thirteen entries carried no date at all. Undated is a failure — a claim
-# with no provenance cannot be re-derived. Merely old is a skip, like the price
-# table: the claim is not wrong, it is unconfirmed, and a gate that goes red on
-# the calendar is a gate people learn to ignore.
+# of the thirteen entries carried no date at all. A missing `Verified:` line is a
+# failure — a claim with no provenance cannot be re-derived. Measured on another
+# Claude Code, or long ago, is a skip that names the probes to run, like the
+# price table: the claim is not wrong, it is unconfirmed, and a gate that goes
+# red on every upgrade is a gate people learn to ignore.
 section "measurement provenance"
 if command -v python3 >/dev/null 2>&1; then
     if out=$(python3 scripts/lib/check-measurement-age.py --selftest 2>&1); then
@@ -222,7 +223,7 @@ if command -v python3 >/dev/null 2>&1; then
         0) ok "$(printf '%s' "$out" | head -1)" ;;
         3) skip "re-measurement" "$(printf '%s' "$out" | head -1)"
            printf '%s\n' "$out" | tail -n +2 | sed 's/^/        /' ;;
-        *) bad "a documented claim has no date"
+        *) bad "a documented claim has no usable provenance"
            printf '%s\n' "$out" | sed 's/^/        /' ;;
     esac
 else

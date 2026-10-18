@@ -49,6 +49,7 @@ payload=$(cat)
 n=$(( $(cat "$DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$DIR/count"
 printf '=== invocation %s ===\n%s\n' "$n" "$payload" >> "$DIR/payloads.log"
+[ "$n" -eq 1 ] && printf '%s' "$payload" > "$DIR/first-payload.json"
 python3 -c 'import json,sys; print(json.dumps({"decision":"block","reason":sys.argv[1]}))' \
     "invocation $n. $(cat "$DIR/instruction")"
 exit 0
@@ -74,6 +75,12 @@ OUT=$( cd "$DIR" && claude -p "$PROMPT" --model haiku \
 
 COUNT=$(cat "$DIR/count" 2>/dev/null || echo 0)
 echo "hook invocations: $COUNT"
+
+# § 1 rests on which keys a Stop payload carries — transcript_path above all,
+# which the hook reference does not list. Keys only: values hold paths and ids.
+if [ -s "$DIR/first-payload.json" ]; then
+    printf 'stop payload keys: %s\n' "$(python3 -c 'import json,sys; print(" ".join(sorted(json.load(open(sys.argv[1])))))' "$DIR/first-payload.json" 2>/dev/null || echo unparseable)"
+fi
 
 if [ "$COUNT" -eq 0 ]; then
     echo "verdict: THE HOOK NEVER FIRED — the probe is broken, not the platform."

@@ -17,7 +17,9 @@ extended, § 3 row A2 and § 4 confirmed. The probe the original measurement nev
 Re-measured: **2026-10-18** · Claude Code **2.1.302** — every headless probe re-run with the developer's
 `~/.claude/settings.json` shut out by `--setting-sources project,local`, which until then had reached
 every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells moved; § 14 re-measured;
-§ 19 added, the first run of `efficiency:fanout`.
+§ 19 added, the first run of `efficiency:fanout`. Later the same day §§ 1, 4 and 5 were re-run, as
+the first version-keyed staleness check asked: unchanged, except a new `effort` key in the `Stop`
+payload.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -39,7 +41,8 @@ Captured by a hook that logged its stdin verbatim. The fields that actually arri
   "stop_hook_active": false,
   "last_assistant_message": "ok",
   "background_tasks": [],
-  "session_crons": []
+  "session_crons": [],
+  "effort": "…"
 }
 ```
 
@@ -49,7 +52,11 @@ arrives. This is what makes per-task spend measurement possible without any API 
 `last_assistant_message`, `prompt_id`, `background_tasks` and `session_crons` are also undocumented
 for this event.
 
-*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Re-measured 2026-10-18 on 2.1.302 by
+`scripts/probes/stop-cap.sh`, which now prints the keys of the first payload it receives: every key
+above is still there, `transcript_path` included, and one has been added — `effort`.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
 
 ## 2. `stop_hook_active`, and whether a project's own Stop hook coexists
 
@@ -107,6 +114,8 @@ numbers.*
 *Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/stop-coexistence.sh both`, with
 every session isolated by `--setting-sources project,local`: 9 invocations each in cap mode, guard 4
 at block 6 beside a blocking project gate. Unchanged.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-coexistence.sh`
 
 ## 3. The block cap — and the condition that governs it
 
@@ -190,7 +199,12 @@ never.
 
 *Re-measured 2026-10-18 on Claude Code 2.1.302, with every session isolated by `--setting-sources
 project,local`: `stop-cap.sh` 9 / 6 / 6 in stall, read and write modes, `stall-ordering.sh` stopped
-by the framework at block 6. Unchanged.*
+by the framework at block 6. Unchanged. Run again the same afternoon, `stall` gave 16 once and then 9
+three times in a row. The probe keeps no transcript, so the 16 is unexplained; one tool call in the
+middle of the run would reset the counter and produce exactly that shape, but nothing recorded that.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
+`scripts/probes/stall-ordering.sh` `scripts/probes/stop-coexistence.sh`
 
 ## 4. Blocking contract
 
@@ -207,13 +221,22 @@ hooks in `scripts/probes/stop-coexistence.sh` block through this contract, and t
 was demonstrably acted on — which is the only way to show the reason arrived, rather than assuming
 it from the turn continuing.*
 
+*Re-measured 2026-10-18 on 2.1.302 by `scripts/probes/stop-coexistence.sh both`: the neighbouring
+hook's reason was obeyed on all 10 turns it blocked, beside the autopilot's own.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-coexistence.sh`
+
 ## 5. Spend and turn limits
 
 `--max-budget-usd` and `--max-turns` are documented as print-mode flags, and the probes confirm
 `--max-turns` binds there. Neither is available to an interactive session, which is why this
 framework carries its own ceilings rather than delegating to the platform.
 
-*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Re-measured 2026-10-18 on 2.1.302 by
+`scripts/probes/stop-cap.sh read 12` and `write 12`: both ended on `--max-turns` at 6 invocations.
+`--max-budget-usd` is passed by every probe and was not exercised to its limit.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
 
 ## 6. Subagent turns are in separate transcripts — and this one bit
 
@@ -246,6 +269,9 @@ declares — here deliberately the most expensive model, so an unknown id stops 
 than late, but for a *known* model priced as the fallback that is a tenfold error.
 
 *Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+
+Verified: 2026-09-05 · Claude Code 2.1.261 · manual (`scripts/probes/transcript-shape.sh` needs a
+real session with subagents)
 
 ## 7. Project settings in an untrusted directory — EXPIRED on 2.1.289
 
@@ -298,6 +324,8 @@ broken probe alike, and only one of those is a platform finding.
 session isolated by `--setting-sources project,local`: a fresh directory's project hook fires, as
 does the same hook through `--settings`. The expiry stands.*
 
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/settings-trust.sh`
+
 ## 8. How a plugin actually reaches a project
 
 Measured, because the shape that looks obvious is wrong.
@@ -319,6 +347,8 @@ Verified afterwards: with `enabledPlugins` committed and the marketplace known, 
 in that project listed all eight components as `efficiency:*`.
 
 *Measured 2026-09-05 on Claude Code 2.1.261 (`4550b61`). Not re-measured since.*
+
+Verified: 2026-09-05 · Claude Code 2.1.261 · manual
 
 ## 9. Writes into `.claude/` are governed by the permission mode
 
@@ -400,6 +430,8 @@ single uncontrolled cell, and was half wrong for three releases. A tool that wri
 expected it to is not necessarily disobeying — but neither is one observation a rule. Vary the one
 thing you did not think was a variable.
 
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/dot-claude-writes.sh`
+
 ## 10. Enabling a plugin takes two halves, and committing one is not enough
 
 Measured by removing each in turn, in real sessions:
@@ -427,6 +459,8 @@ easier version until it was measured.
 history places the commit between 2.1.289 and 2.1.296 without settling which — so this entry is due
 a re-measurement whatever its age, and the date below is when it was written down, not a version it
 was checked against.*
+
+Verified: 2026-10-10 · Claude Code unknown · manual
 
 ## 11. Refreshing a marketplace does not update an installed plugin
 
@@ -479,6 +513,8 @@ believing any test result about a plugin.
 
 *Measured 2026-09-05 on Claude Code 2.1.261 (`fd43dee`). Not re-measured since.*
 
+Verified: 2026-09-05 · Claude Code 2.1.261 · manual
+
 ## 12. The status line — the only continuously visible surface
 
 Measured **2026-10-10** on **2.1.296** with `scripts/probes/statusline.sh`, which installs a
@@ -516,6 +552,9 @@ One inconsistency worth knowing: the payload reported `version: 2.1.289` while `
 said `2.1.296` on the same machine, at the same moment. Do not use the payload's `version` to decide
 anything.
 
+Verified: 2026-10-10 · Claude Code 2.1.296 · manual (`scripts/probes/statusline.sh` needs an
+interactive session)
+
 ## 13. What a PDF costs to read, and when converting it is worth anything
 
 Measured **2026-10-10** on **2.1.296**, Opus 5, with `scripts/probes/pdf-token-cost.sh` — which
@@ -552,6 +591,9 @@ Three things follow, and the second is the one that was assumed wrong here befor
 And the limit worth stating with them: when what matters is the *layout* — a scan, a signature, a
 figure whose appearance is the content — the page image is the correct thing to read, and converting
 first is strictly worse. Fidelity, not frugality, decides that one.
+
+Verified: 2026-10-10 · Claude Code 2.1.296 · manual (`scripts/probes/pdf-token-cost.sh` needs a
+session to read the PDF)
 
 ## 14. A skill is reached by what it does, not by how its description is worded
 
@@ -651,6 +693,8 @@ fourth ran under a permission mode that denied the writes the skills exist to pe
 fixed a defect named in a transcript. None of them was a nudge to make a number look better — which
 is the only thing separating a probe from a wish.*
 
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/skill-auto-invoke.sh`
+
 ## 15. A run really does route, and what that costs is harder to know than it looks
 
 Model routing is this framework's headline contribution and had never been watched working.
@@ -705,6 +749,8 @@ ceilings, silently, and the symptom surfaces minutes later and somewhere else.*
 *Re-measured 2026-10-18 on Claude Code 2.1.302 by `scripts/probes/run-routing.sh`, with every
 session isolated by `--setting-sources project,local`: implementer-fast, reviewer, implementer-fast,
 three tasks closed, gate green. Unchanged.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/run-routing.sh`
 
 ## 16. `haiku`, `sonnet` and `opus` are not model ids, and nobody was checking what they meant
 
@@ -780,6 +826,8 @@ catches it, which is what the `verified` date and its 90-day staleness warning e
 isolated by `--setting-sources project,local`: the same three ids, all priced. `resolved` in the
 cost table still records 2.1.296, so the gate reports the mapping unverified until it is updated —
 that is a change to a shipped file and waits for the next release.*
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/model-ids.sh`
 
 ## 17. A turn can be stopped from the inside, and its spend can be read while it runs
 
@@ -877,6 +925,9 @@ project,local`: the transcript is incremental (1 → 1 → 3 usage rows, Stop sa
 honoured with one refused call of overshoot, and a subagent's own tool call reaches the hook
 carrying the parent's transcript. Unchanged.*
 
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/midturn-transcript.sh`
+`scripts/probes/midturn-deny.sh` `scripts/probes/midturn-subagent.sh`
+
 ## 18. A plugin can ship an output style, and only its prefixed name reaches it
 
 Measured **2026-10-18** on **2.1.302** with `scripts/probes/plugin-output-style.sh`: a throwaway
@@ -905,6 +956,8 @@ Three findings, two of which would have been guessed wrong:
 
 The plugin needs no manifest entry: an `output-styles/` directory beside `.claude-plugin/` is found
 on its own.
+
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/plugin-output-style.sh`
 
 ## 19. `efficiency:fanout` fans out, and refuses without a gate
 
@@ -940,7 +993,15 @@ can say. Whether the text reached the model has to be read from what the model t
 Not measured: more items than one batch holds, so whether it actually batches at ten, and whether it
 runs the gate between batches, is still only what the skill says.
 
+Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/fanout.sh`
+
 ## Re-running these measurements
+
+Every numbered section ends with a `Verified:` line — date, Claude Code version, and the probe that
+re-derives it, or `manual` when a person has to be in the session. `scripts/lib/check-measurement-age.py`
+reads only that line. After a Claude Code upgrade the gate goes amber for every probe-backed section
+measured on another version and prints the probes to run; `manual` sections follow the calendar
+alone, and the gate names them. Re-run, then update the line in place.
 
 ```bash
 bash scripts/probes/stop-cap.sh stall 40   # expect ~9 invocations, platform cap

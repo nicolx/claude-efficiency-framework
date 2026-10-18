@@ -15,6 +15,19 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Changed — measurements go stale on a Claude Code upgrade, not only on the calendar
+
+Every numbered section of `docs/verified-platform-behaviour.md` now ends with a `Verified:` line:
+date, Claude Code version, and the probe that re-derives it or `manual`. The staleness check reads
+only that line and compares the version with `claude --version`, locally and at no cost. After an
+upgrade the gate goes amber for every probe-backed section measured on another version and prints
+the probes to run. `manual` sections, and CI, where `claude` is absent, keep the 90-day calendar.
+That closes the backlog item about running probes in CI without running them there.
+
+The first run of it flagged §§ 1, 4 and 5. Re-run on 2.1.302 and unchanged, except a new `effort`
+key in the `Stop` payload. `scripts/probes/stop-cap.sh` now prints the payload's keys, which is
+what § 1 rests on and which it previously captured and threw away.
+
 ## [0.20.1] — 2026-10-18
 
 ### Changed — the alias mapping is re-measured on 2.1.302
