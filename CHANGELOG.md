@@ -15,6 +15,16 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.21.1] — 2026-10-19
+
+### Changed — every report says where the work landed
+
+The charter's report rules said whether work was done, never where it was. DONE read the same for a
+change still on disk and one already live. A report of work that changed something now ends with its
+state on three axes — committed, pushed, deployed or released — and states the negatives too, so
+silence about a push can no longer be read either way. New subsection "Say where the work landed"
+in `AUTONOMY-CHARTER.md`.
+
 ## [0.21.0] — 2026-10-19
 
 ### Fixed — spend was counted up to four times over: recalibrate your ceilings

@@ -101,6 +101,18 @@ A mistake you made belongs in the open list if it is unresolved, not only in the
 the build configuration and two commits never ran" means the work is **unverified**, which means it
 is **not done** — regardless of how sound the rest is.
 
+### Say where the work landed
+
+Every report of work that changed something ends with where that work now is, because DONE does
+not say whether it sits on the developer's disk, in a commit, on the remote, or live:
+
+- **Committed** — `<sha>` on `<branch>`, or *not committed*
+- **Pushed** — to which remote and ref, or *not pushed*
+- **Deployed / released** — where, or *not deployed*
+
+State the negatives too. Silence about a push reads as "it happened" to one reader and "it didn't"
+to another, and both are guessing.
+
 ## When the task is done, it is done
 
 Finishing is a boundary, not a pause. **Do not open a new piece of work because you are already
