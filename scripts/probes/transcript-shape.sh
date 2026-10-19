@@ -2,21 +2,63 @@
 # transcript-shape.sh — inspect the shape of a session transcript and its subagents.
 #
 # The claims in docs/verified-platform-behaviour.md § 6 (Subagent turns are in
-# separate transcripts) rest on this probe. Use it to verify the directory structure
-# and the usage keys present in a real session.
+# separate transcripts; one row per content block) rest on this probe.
 #
 #   bash scripts/probes/transcript-shape.sh <path-to-session-transcript.jsonl>
+#   bash scripts/probes/transcript-shape.sh --live [max-turns]
 #
-# Prints the subagents directory (or reports none exists) and the set of usage keys
-# found in the transcript and any subagent transcripts, plus the count of rows bearing
-# usage data. Never prints conversation content, token values, or model ids.
+# Prints the subagents directory (or reports none exists), the set of usage keys found
+# in the transcript and any subagent transcripts, the count of rows bearing usage data,
+# and how those rows group into messages: how many messages span several rows, whether
+# their input/cache usage repeats, and whether output_tokens differs between them. Then
+# it prices the session twice — every row summed, and hooks/lib/spend.py (one per
+# message). Never prints conversation content.
+#
+# --live runs a small headless Haiku session that thinks, calls tools and delegates to a
+# subagent, then does all of the above on its transcript AND compares both figures with
+# the session's own total_cost_usd. Costs a few cents. That comparison is the ground
+# truth: on 2026-10-18 the row sum was 2-4x total_cost_usd, the per-message sum within
+# a cent.
 #
 # Why this matters: a measurement that reads only transcript_path misses subagent
 # spend entirely. A spending ceiling blind to them is a ceiling on the cheap work only.
 
 set -uo pipefail
 
+HERE=$(cd "$(dirname "$0")/../.." && pwd)
 TRANSCRIPT_PATH="${1:-}"
+REPORTED_COST=""
+
+if [ "$TRANSCRIPT_PATH" = "--live" ]; then
+    command -v claude >/dev/null 2>&1 || { echo "claude not on PATH" >&2; exit 2; }
+    MAX_TURNS="${2:-15}"
+    LIVE=$(mktemp -d) || exit 2
+    trap 'rm -rf "$LIVE"' EXIT
+    printf '%s' '{"permissions": {"allow": ["Bash(echo:*)", "Task", "Agent"]}}' > "$LIVE/settings.json"
+    PROMPT="Think briefly first. Then, in ONE reply, use the Bash tool twice: 'echo one' and 'echo two'. Then use the Task tool to launch exactly one general-purpose subagent that runs 'echo three' with Bash and reports the output. Do not run that command yourself. Finally reply with the three outputs and nothing else."
+    echo "claude --version: $(claude --version 2>/dev/null)"
+    JSON=$( cd "$LIVE" && claude -p "$PROMPT" --model haiku --output-format json \
+              --setting-sources project,local --settings "$LIVE/settings.json" \
+              --max-turns "$MAX_TURNS" --max-budget-usd 0.75 --permission-mode dontAsk \
+              </dev/null 2>/dev/null )
+    read -r SID REPORTED_COST < <(printf '%s' "$JSON" | python3 -c '
+import json, sys
+d = {}
+for line in sys.stdin.read().splitlines():
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        continue
+    if isinstance(ev, dict) and ev.get("type") == "result":
+        d = ev
+print(d.get("session_id", ""), d.get("total_cost_usd", ""))')
+    if [ -z "${SID:-}" ]; then
+        echo "verdict: the live session returned no result event — the probe is broken, not the platform." >&2
+        exit 2
+    fi
+    TRANSCRIPT_PATH=$(find "$HOME/.claude/projects" -name "$SID.jsonl" -type f 2>/dev/null | head -1)
+    echo "live session $SID · total_cost_usd=$REPORTED_COST"
+fi
 
 if [ -z "$TRANSCRIPT_PATH" ]; then
     echo "usage: bash scripts/probes/transcript-shape.sh <path-to-session-transcript.jsonl>" >&2
@@ -41,10 +83,6 @@ if [ -d "$SUBAGENTS_DIR" ]; then
 else
     echo "  └─ (does not exist — this session spawned no subagents)"
 fi
-
-# Create a temp dir for our scratch work (following stop-cap.sh pattern)
-TMPDIR=$(mktemp -d) || exit 2
-trap 'rm -rf "$TMPDIR"' EXIT
 
 # Parse transcripts to extract usage keys and count rows
 python3 - "$TRANSCRIPT_PATH" "$SUBAGENTS_DIR" <<'PY'
@@ -117,4 +155,66 @@ else:
     print()
     print(f"Total rows with usage data: 0")
 
+PY
+
+# Rows versus messages, and what each reading of them costs.
+python3 - "$TRANSCRIPT_PATH" "$HERE" "$REPORTED_COST" <<'PY'
+import collections, importlib.util, json, os, sys
+
+transcript, here, reported = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = importlib.util.spec_from_file_location("spend", os.path.join(here, "hooks", "lib", "spend.py"))
+spend = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(spend)
+costs = json.load(open(os.path.join(here, "hooks", "lib", "model-costs.json")))
+
+BILLED_INPUT = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+                "cache_creation")
+rows = msgs = multi = same_input = output_differs = keyless = 0
+row_sum = 0.0
+for path in spend.transcripts_for(transcript):
+    groups = collections.defaultdict(list)
+    for line in open(path, errors="replace"):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        m = rec.get("message") if isinstance(rec, dict) else None
+        if not (isinstance(m, dict) and isinstance(m.get("usage"), dict)):
+            continue
+        rows += 1
+        u = m["usage"]
+        row_sum += spend.line_cost(u, spend.price_for(costs, spend.normalise_model(m.get("model"))))
+        key = spend.message_key(rec, m)
+        if key is None:
+            keyless += 1
+            continue
+        groups[key].append(u)
+    msgs += len(groups)
+    for us in groups.values():
+        if len(us) < 2:
+            continue
+        multi += 1
+        # The billed input side. output_tokens, output_tokens_details, iterations and
+        # server_tool_use are expected to differ: they grow as the message streams.
+        strip = lambda u: json.dumps({k: u.get(k) for k in BILLED_INPUT}, sort_keys=True)
+        same_input += len({strip(u) for u in us}) == 1
+        output_differs += len({u.get("output_tokens") for u in us}) > 1
+
+print()
+print("Rows with usage: %d · distinct messages (message.id / requestId): %d · rows with neither: %d"
+      % (rows, msgs, keyless))
+print("Messages spanning >1 row: %d · of which input+cache usage identical on every row: %d"
+      " · output_tokens differs between rows: %d" % (multi, same_input, output_differs))
+
+import subprocess
+done = subprocess.run([sys.executable, os.path.join(here, "hooks", "lib", "spend.py"), transcript,
+                       "2000-01-01T00:00:00Z", os.path.join(here, "hooks", "lib", "model-costs.json")],
+                      capture_output=True, text=True)
+per_message = int(done.stdout.strip()) / 1e6 if done.returncode == 0 else float("nan")
+print("Every row summed:        $%.4f" % row_sum)
+print("spend.py (per message):  $%.4f" % per_message)
+if reported:
+    r = float(reported)
+    print("total_cost_usd reported: $%.4f   row sum is %.2fx it · spend.py is %.2fx it"
+          % (r, row_sum / r if r else 0, per_message / r if r else 0))
 PY

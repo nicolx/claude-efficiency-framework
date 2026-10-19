@@ -37,6 +37,24 @@ HOOK = os.path.join(HERE, "autopilot-stop.py")
 PRETOOL = os.path.join(HERE, "autopilot-pretool.py")
 SESSION_START = os.path.join(HERE, "session-start.py")
 STATUSLINE = os.path.join(HERE, "statusline.py")
+PLUGIN = os.path.dirname(HERE)
+
+
+def _load_hook():
+    """The Stop hook as a module, for the few cases that read its constants.
+
+    Everything else invokes it as a subprocess; this exists so a default the
+    hook falls back to can be compared with the documents that ship it, instead
+    of with a copy of the number written here a third time.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("autopilot_stop", HOOK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+HOOK_MODULE = _load_hook()
 
 FRONT = """\
 status: {status}
@@ -161,7 +179,13 @@ class Project:
         run, precisely so a rewrite of that frontmatter cannot touch them.
         """
         import hashlib
-        lines = [l.strip() for l in open(self.run_path, errors="replace").read().split("\n")
+        import re
+        # Scheduling annotations and the tier tag are not part of a task's
+        # identity, by the hook's rule; a line without them is hashed as it is.
+        sched = re.compile(r"\s+(?:after|files)=\S+")
+        tier = re.compile(r"^(- \[.\]\s*\S+)\s+\[[^\]\s]+\]")
+        lines = [tier.sub(r"\1", sched.sub("", l.strip()))
+                 for l in open(self.run_path, errors="replace").read().split("\n")
                  if l.strip().startswith("- [")]
         statements = "\n".join(l.split("]", 1)[1].strip() for l in lines)
         # The open-task signature, by the same rule the hook uses. Seeding it is
@@ -595,6 +619,42 @@ def _():
     return p
 
 
+@case("spend counts a message ONCE, though the transcript writes a row per content block")
+def _():
+    # The real shape (docs/verified-platform-behaviour.md § 6): thinking, text
+    # and a tool call are three rows, each repeating the whole message's input
+    # usage, with output_tokens growing as it streams — only the last is the
+    # bill. Summing rows charged $0.89 for a session that cost $0.22.
+    p = Project(tasks="- [ ] T1 open").seed_private(spend_max=10_000_000)
+    path = p.write_transcript([])
+    ts = "2026-01-01T00:00:%02dZ"
+    rows = []
+    # msg_A: 200k Opus input ($1.00) + 40k output ($1.00), split over 3 blocks.
+    for i, (block, out) in enumerate((("thinking", 3), ("text", 3), ("tool_use", 40_000))):
+        rows.append({"timestamp": ts % i, "requestId": "req_A",
+                     "message": {"id": "msg_A", "model": "claude-opus-5",
+                                 "content": [{"type": block}],
+                                 "usage": {"input_tokens": 200_000, "output_tokens": out}}})
+    # Keyed by requestId alone: two rows, one message ($1.00).
+    for i in range(2):
+        rows.append({"timestamp": ts % (10 + i), "requestId": "req_B",
+                     "message": {"model": "claude-opus-5",
+                                 "usage": {"input_tokens": 200_000, "output_tokens": 0}}})
+    # No id at all: nothing to match, so each row still counts ($1.00 x 2).
+    for i in range(2):
+        rows.append({"timestamp": ts % (20 + i),
+                     "message": {"model": "claude-opus-5",
+                                 "usage": {"input_tokens": 200_000, "output_tokens": 0}}})
+    with open(path, "w") as fh:
+        fh.write("".join(json.dumps(r) + "\n" for r in rows))
+    p.invoke()
+    spent = int(p.state()["task_spend_micro_usd"])
+    # $5.00. Summing rows says $8.00; keeping each message's FIRST row, $4.00.
+    check("spend counts a message ONCE, though the transcript writes a row per content block",
+          spent == 5_000_000, "measured %s micro-usd, expected 5000000" % spent)
+    return p
+
+
 @case("a window the run file dates in the future would never measure anything")
 def _():
     # `task_started_at` is frontmatter, so the model writes it, and the hook
@@ -1017,6 +1077,701 @@ def _():
     check("alternating current_task cannot buy a second spend ceiling",
           fired == 3 and "spend ceiling" in reason,
           "stopped at block %s, reason=%.90s" % (fired or "never", reason))
+    return p
+
+
+# ── 6b. fast mode: the spend window belongs to the wave ──────────────────────
+# In a fast run a whole wave of tasks is worked at once, one subagent each, and
+# every one of them is billed to this session's transcript. A per-task window
+# measured all of them against one task's ceiling, and reopened on every
+# closure — erasing the spend of the tasks still running. These cases pin the
+# per-wave window, and that nothing the model can edit widens it.
+
+WAVE3 = ("- [ ] T1 [standard] first  model=sonnet files=a.py\n"
+         "- [ ] T2 [standard] second  model=sonnet files=b.py\n"
+         "- [ ] T3 [standard] third  model=sonnet files=c.py\n"
+         "- [ ] T4 [mechanical] last  model=haiku after=T1,T2,T3 files=d.py")
+
+
+PARALLEL = "---\nparallel:\n  default_mode: auto\n  min_wave: 3\n  max_agents: %d\n---\n"
+
+
+def fast_run(tasks=WAVE3, mode="fast", max_agents=10):
+    """A fresh run, $1.00 per task, that the hook has not seen yet."""
+    p = Project(tasks=tasks, spend_max=1_000_000)
+    if max_agents is not None:
+        p.write_policy(PARALLEL % max_agents)
+    if mode:
+        text = p.raw().replace("status: ACTIVE\n", "status: ACTIVE\nmode: %s\n" % mode, 1)
+        open(p.run_path, "w").write(text)
+    return p
+
+
+def spend(p, micro, ts="2026-01-01T00:00:00Z"):
+    """One Opus turn costing exactly `micro` ($5/MTok input)."""
+    p.write_transcript([("claude-opus-5", {"input_tokens": micro // 5, "output_tokens": 0}, ts)])
+
+
+def tick(p, *ids):
+    text = p.raw()
+    for i in ids:
+        text = text.replace("- [ ] %s " % i, "- [x] %s " % i)
+    open(p.run_path, "w").write(text)
+
+
+@case("fast mode: a wave of 3 runs on 3x the per-task ceiling, and stops above it")
+def _():
+    p = fast_run()
+    spend(p, 2_500_000)
+    p.invoke()
+    under = p.state()["status"]
+    priv = p.private()
+    spend(p, 3_500_000)
+    p.invoke()
+    st = p.state()
+    check("fast mode: a wave of 3 runs on 3x the per-task ceiling, and stops above it",
+          under == "ACTIVE" and priv.get("wave") == ["T1", "T2", "T3"]
+          and priv.get("spend_max") == 3_000_000
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"]
+          and "T1, T2, T3" in st["blocked_reason"],
+          "at $2.50: %s, wave=%s max=%s; at $3.50: %s %.80s"
+          % (under, priv.get("wave"), priv.get("spend_max"), st["status"],
+             st["blocked_reason"]))
+    return p
+
+
+@case("fast mode: closing one task of the wave does NOT reset its window")
+def _():
+    p = fast_run()
+    spend(p, 2_500_000)
+    p.invoke()
+    tick(p, "T1")
+    p.invoke()
+    kept = p.private().get("task_started_at")
+    spend(p, 3_500_000)
+    p.invoke()
+    st = p.state()
+    check("fast mode: closing one task of the wave does NOT reset its window",
+          kept == "2000-01-01T00:00:00Z" and st["status"] == "BLOCKED"
+          and "spend ceiling" in st["blocked_reason"],
+          "window=%s status=%s — a closure erased the open tasks' spend"
+          % (kept, st["status"]))
+    return p
+
+
+@case("fast mode: the window resets when the whole wave closes, at the next width")
+def _():
+    p = fast_run()
+    spend(p, 2_500_000)
+    p.invoke()
+    tick(p, "T1", "T2", "T3")
+    p.invoke()
+    priv = p.private()
+    history = priv.get("wave_history") or [{}]
+    # T4 is mechanical, and a policy with no `tier_multiplier` gets the
+    # shipped 0.5: its one-task wave is held at $0.50.
+    reopened = (priv.get("wave") == ["T4"] and priv.get("spend_max") == 500_000
+                and history[-1].get("wave") == ["T1", "T2", "T3"]
+                and history[-1].get("spent") == 2_500_000
+                and p.state().get("wave_spend_micro_usd") == "T1,T2,T3=2500000"
+                and priv.get("task_started_at") != "2000-01-01T00:00:00Z"
+                and p.state()["status"] == "ACTIVE")
+    # The next wave is one task wide, so $1.50 inside its window is over.
+    spend(p, 1_500_000, ts="2099-01-01T00:00:00Z")
+    p.invoke()
+    st = p.state()
+    check("fast mode: the window resets when the whole wave closes, at the next width",
+          reopened and st["status"] == "BLOCKED" and "T4" in st["blocked_reason"],
+          "wave=%s max=%s window=%s history=%s; then %s %.80s"
+          % (priv.get("wave"), priv.get("spend_max"), priv.get("task_started_at"),
+             priv.get("wave_history"),
+             st["status"], st["blocked_reason"]))
+    return p
+
+
+@case("fast mode: flipping `mode:` to fast mid-run does not raise the ceiling")
+def _():
+    p = fast_run(mode=None)
+    spend(p, 500_000)
+    p.invoke()
+    text = p.raw().replace("status: ACTIVE\n", "status: ACTIVE\nmode: fast\n", 1)
+    open(p.run_path, "w").write(text)
+    spend(p, 2_500_000)
+    p.invoke()
+    st = p.state()
+    check("fast mode: flipping `mode:` to fast mid-run does not raise the ceiling",
+          p.private().get("mode") == "economy" and st["status"] == "BLOCKED"
+          and "spend ceiling" in st["blocked_reason"],
+          "mode=%s status=%s" % (p.private().get("mode"), st["status"]))
+    return p
+
+
+@case("fast mode: deleting `after=` mid-run neither widens the next wave nor re-plans")
+def _():
+    # The edit only matters once a wave closes and the next one is computed, so
+    # that is what this case does. Read live, the edited file would make the
+    # next wave T2, T3, T4 at $3.00; captured, it is T2, T3 at $2.00.
+    chain = ("- [ ] T1 [standard] first  model=sonnet files=a.py\n"
+             "- [ ] T2 [standard] second  model=sonnet after=T1 files=b.py\n"
+             "- [ ] T3 [standard] third  model=sonnet after=T1 files=c.py\n"
+             "- [ ] T4 [standard] fourth  model=sonnet after=T2 files=d.py")
+    p = fast_run(tasks=chain)
+    spend(p, 500_000)
+    p.invoke()
+    before = p.private()
+    text = p.raw().replace(" after=T1", "").replace(" after=T2", "")
+    open(p.run_path, "w").write(text)
+    tick(p, "T1")
+    p.invoke()
+    after = p.private()
+    spend(p, 2_500_000, ts="2099-01-01T00:00:00Z")
+    p.invoke()
+    st = p.state()
+    check("fast mode: deleting `after=` mid-run neither widens the next wave nor re-plans",
+          before.get("wave") == ["T1"] and after.get("wave") == ["T2", "T3"]
+          and after.get("spend_max") == 2_000_000
+          and after.get("fingerprint") == before.get("fingerprint")
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "wave %s -> %s at %s, same run=%s, status=%s"
+          % (before.get("wave"), after.get("wave"), after.get("spend_max"),
+             after.get("fingerprint") == before.get("fingerprint"), st["status"]))
+    return p
+
+
+@case("a run file without `mode:` keeps the per-task window, unchanged")
+def _():
+    import hashlib
+    p = fast_run(tasks="- [ ] T1 open\n- [ ] T2 open\n- [ ] T3 open", mode=None)
+    spend(p, 2_500_000)
+    p.invoke()
+    st = p.state()
+    priv = p.private()
+    # Old run files must also fingerprint exactly as they did, or every state
+    # file in flight would read as a re-plan on upgrade and reset its counters.
+    old = hashlib.sha256("T1 open\nT2 open\nT3 open".encode()).hexdigest()
+    check("a run file without `mode:` keeps the per-task window, unchanged",
+          priv.get("mode") == "economy" and priv.get("spend_max") == 1_000_000
+          and priv.get("fingerprint") == old and st["status"] == "BLOCKED"
+          and st["blocked_reason"].startswith("T1 reached its spend ceiling"),
+          "mode=%s max=%s same-fingerprint=%s status=%s %.60s"
+          % (priv.get("mode"), priv.get("spend_max"), priv.get("fingerprint") == old,
+             st["status"], st["blocked_reason"]))
+    return p
+
+
+@case("fast mode: the mid-turn guard holds the wave's ceiling, not one task's")
+def _():
+    p = fast_run()
+    spend(p, 100_000)
+    p.invoke()
+    spend(p, 2_500_000)
+    _, under = p.invoke_pretool()
+    spend(p, 3_500_000)
+    # Same byte length as the $2.50 transcript, so the mid-turn cache would
+    # answer for it; that cache is not what this case is about.
+    os.unlink(os.path.join(p.dir, ".efficiency", "midturn-cache.json"))
+    _, over = p.invoke_pretool()
+    check("fast mode: the mid-turn guard holds the wave's ceiling, not one task's",
+          p.decision(under) is None and p.decision(over) == "deny",
+          "at $2.50: %s, at $3.50: %s" % (p.decision(under), p.decision(over)))
+    return p
+
+
+@case("fast mode: the first turn, before the Stop hook has seen the run, is held at 3x")
+def _():
+    # Nothing is captured yet, so the mid-turn guard sizes the first window from
+    # the run file and the policy. In a fast run that turn dispatches the whole
+    # first wave: held at one task's ceiling, it would refuse its own dispatch.
+    p = fast_run()
+    spend(p, 2_500_000)
+    _, under = p.invoke_pretool()
+    os.unlink(os.path.join(p.dir, ".efficiency", "midturn-cache.json"))
+    spend(p, 3_500_000)
+    _, over = p.invoke_pretool()
+    e = fast_run(mode=None)
+    spend(e, 1_500_000)
+    _, economy = e.invoke_pretool()
+    e.close()
+    check("fast mode: the first turn, before the Stop hook has seen the run, is held at 3x",
+          not p.private() and p.decision(under) is None and p.decision(over) == "deny"
+          and p.decision(economy) == "deny",
+          "fast at $2.50: %s, at $3.50: %s; economy at $1.50: %s"
+          % (p.decision(under), p.decision(over), p.decision(economy)))
+    return p
+
+@case("fast mode: a task with no `files=` runs alone, so its window is 1x")
+def _():
+    tasks = ("- [ ] T1 [standard] touches anything  model=sonnet\n"
+             + "".join("- [ ] T%d [standard] free  model=sonnet files=f%d.py\n" % (i, i)
+                       for i in range(2, 6)))
+    p = fast_run(tasks=tasks)
+    spend(p, 1_500_000)
+    p.invoke()
+    priv = p.private()
+    st = p.state()
+    check("fast mode: a task with no `files=` runs alone, so its window is 1x",
+          priv.get("wave") == ["T1"] and priv.get("spend_max") == 1_000_000
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "wave=%s max=%s status=%s" % (priv.get("wave"), priv.get("spend_max"), st["status"]))
+    return p
+
+
+@case("fast mode: overlapping `files=` split the wave, globs included")
+def _():
+    tasks = ("- [ ] T1 [standard] a  model=sonnet files=src/**\n"
+             "- [ ] T2 [standard] b  model=sonnet files=src/x/a.py\n"
+             "- [ ] T3 [standard] c  model=sonnet files=docs/b.md")
+    p = fast_run(tasks=tasks)
+    spend(p, 2_500_000)
+    p.invoke()
+    priv = p.private()
+    st = p.state()
+    check("fast mode: overlapping `files=` split the wave, globs included",
+          priv.get("wave") == ["T1", "T3"] and priv.get("spend_max") == 2_000_000
+          and st["status"] == "BLOCKED",
+          "wave=%s max=%s status=%s" % (priv.get("wave"), priv.get("spend_max"), st["status"]))
+    return p
+
+
+@case("fast mode: max_agents caps the wave, and raising it mid-run buys nothing")
+def _():
+    # Five free tasks, two at a time. After the policy is raised to 10 and the
+    # first wave closes, a live read would make the next wave T3, T4, T5 at
+    # $3.00; the captured cap keeps it at T3, T4 and $2.00.
+    tasks = "".join("- [ ] T%d [standard] free  model=sonnet files=f%d.py\n" % (i, i)
+                    for i in range(1, 6))
+    p = fast_run(tasks=tasks, max_agents=2)
+    spend(p, 500_000)
+    p.invoke()
+    capped = p.private().get("wave")
+    p.write_policy(PARALLEL % 10)
+    tick(p, "T1", "T2")
+    p.invoke()
+    nxt = p.private()
+    spend(p, 2_500_000, ts="2099-01-01T00:00:00Z")
+    p.invoke()
+    st = p.state()
+    check("fast mode: max_agents caps the wave, and raising it mid-run buys nothing",
+          capped == ["T1", "T2"] and nxt.get("wave") == ["T3", "T4"]
+          and nxt.get("spend_max") == 2_000_000
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "wave %s -> %s at %s, status=%s"
+          % (capped, nxt.get("wave"), nxt.get("spend_max"), st["status"]))
+    return p
+
+
+@case("fast mode: a policy that cannot be read caps every wave at one task")
+def _():
+    p = fast_run(max_agents=None)
+    spend(p, 1_500_000)
+    p.invoke()
+    st = p.state()
+    check("fast mode: a policy that cannot be read caps every wave at one task",
+          p.private().get("wave") == ["T1"] and st["status"] == "BLOCKED",
+          "wave=%s status=%s" % (p.private().get("wave"), st["status"]))
+    return p
+
+
+def first_wave(tasks, policy=PARALLEL % 10):
+    """The wave the Stop hook captures for a fresh fast run, and its ceiling."""
+    p = fast_run(tasks=tasks, max_agents=None)
+    if policy is not None:
+        p.write_policy(policy)
+    spend(p, 100_000)
+    p.invoke()
+    priv = p.private()
+    p.close()
+    return priv.get("wave"), priv.get("spend_max")
+
+
+@case("fast mode: a policy from before 0.21, with no `parallel:` block, gets 10")
+def _():
+    tasks = "".join("- [ ] T%d [standard] free  model=sonnet files=f%d.py\n" % (i, i)
+                    for i in range(1, 13))
+    wave, ceiling = first_wave(tasks, policy="---\ngate: \"make check\"\n---\n\n# Defaults\n")
+    check("fast mode: a policy from before 0.21, with no `parallel:` block, gets 10",
+          wave == ["T%d" % i for i in range(1, 11)] and ceiling == 10_000_000,
+          "wave=%s max=%s" % (wave, ceiling))
+
+
+@case("fast mode: a policy that exists but cannot be parsed caps every wave at one")
+def _():
+    results = {}
+    for name, policy in (("no frontmatter", "parallel:\n  max_agents: 10\n"),
+                         ("unclosed", "---\nparallel:\n  max_agents: 10\n"),
+                         ("not a number", "---\nparallel:\n  max_agents: ten\n---\n")):
+        results[name] = first_wave(WAVE3, policy=policy)
+    check("fast mode: a policy that exists but cannot be parsed caps every wave at one",
+          all(r == (["T1"], 1_000_000) for r in results.values()), "got %s" % results)
+
+
+@case("fast mode: a task with no `files=` further down waits for a wave of its own")
+def _():
+    wave, ceiling = first_wave("- [ ] T1 [standard] a  model=sonnet files=a.py\n"
+                               "- [ ] T2 [standard] b  model=sonnet\n"
+                               "- [ ] T3 [standard] c  model=sonnet files=c.py")
+    check("fast mode: a task with no `files=` further down waits for a wave of its own",
+          wave == ["T1", "T3"] and ceiling == 2_000_000, "wave=%s max=%s" % (wave, ceiling))
+
+
+# Each spelling is tested against `src/a.py` and must land in a separate wave.
+# The last two are the branches fnmatch alone misses: a literal stem shared
+# with a pattern it cannot parse, and a directory that contains the file.
+OVERLAPS = (
+    ("./src/a.py", "a leading ./"),
+    ("/abs/src/a.py", "an absolute path ending with the relative one"),
+    ("src/{a,b}.py", "a brace pattern"),
+    ("SRC/a.py", "a different case"),
+    ("src", "a directory containing it"),
+)
+
+
+@case("fast mode: overlapping spellings of one path never share a wave")
+def _():
+    for other, why in OVERLAPS:
+        wave, _ceiling = first_wave(
+            "- [ ] T1 [standard] a  model=sonnet files=src/a.py\n"
+            "- [ ] T2 [standard] b  model=sonnet files=%s\n"
+            "- [ ] T3 [standard] c  model=sonnet files=z.py" % other)
+        check("fast mode: %s overlaps src/a.py (%s)" % (other, why),
+              wave == ["T1", "T3"], "wave=%s" % wave)
+    # The stem branch: a pattern whose literal stem the other starts with,
+    # where neither fnmatch direction matches.
+    wave, _ceiling = first_wave(
+        "- [ ] T1 [standard] a  model=sonnet files=src/a*\n"
+        "- [ ] T2 [standard] b  model=sonnet files=src/[a]x.py\n"
+        "- [ ] T3 [standard] c  model=sonnet files=z.py")
+    check("fast mode: src/a* overlaps src/[a]x.py by their stems, not by fnmatch",
+          wave == ["T1", "T3"], "wave=%s" % wave)
+    # And a path that is really elsewhere still shares the wave.
+    wave, _ceiling = first_wave(
+        "- [ ] T1 [standard] a  model=sonnet files=src/a.py\n"
+        "- [ ] T2 [standard] b  model=sonnet files=/abs/lib/b.py\n"
+        "- [ ] T3 [standard] c  model=sonnet files=z.py")
+    check("fast mode: unrelated absolute and relative paths still share a wave",
+          wave == ["T1", "T2", "T3"], "wave=%s" % wave)
+
+
+@case("rule 2: a hand-edited state file in the wrong shapes does not crash the hook")
+def _():
+    p = fast_run()
+    spend(p, 100_000)
+    p.invoke()
+    tick(p, "T1", "T2", "T3")
+    state = p.private()
+    state.update(deps={"T2": 5, "T4": 5}, files={"T4": 7},
+                 wave_history=[{"wave": [1], "spent": 3}, "junk"])
+    with open(os.path.join(p.dir, ".efficiency", "autopilot.json"), "w") as fh:
+        json.dump(state, fh)
+    code, out = p.invoke()
+    check("rule 2: a hand-edited state file in the wrong shapes does not crash the hook",
+          code == 0 and out and p.private().get("wave") == []
+          and p.state().get("wave_spend_micro_usd", "").startswith("1=3; T1,T2,T3="),
+          "code=%s out=%.80s wave=%s spend=%s" % (code, out, p.private().get("wave"),
+                                                 p.state().get("wave_spend_micro_usd")))
+    return p
+
+
+# ── 6c. the ceiling scales by the task's tier ────────────────────────────────
+# One flat per-task figure either strangles critical work or lets a mechanical
+# task loop for a long time. Each task's ceiling is the base times its tier's
+# multiplier — captured on first sight, like everything else that sizes a
+# ceiling, so neither a relabel nor a policy edit mid-run buys anything.
+
+NO_BUDGET = "---\ngate: \"make check\"\n---\n"
+BUDGET = "---\nbudget:\n  task_usd: 1.00\n  tier_multiplier: %s\n---\n"
+
+
+def tier_run(tasks, policy=NO_BUDGET, mode=None):
+    """A fresh run at $1.00 per task, with the policy given."""
+    p = fast_run(tasks=tasks, mode=mode, max_agents=None)
+    if policy is not None:
+        p.write_policy(policy)
+    return p
+
+
+def held_at(p, under, over, ts="2026-01-01T00:00:00Z"):
+    """(status after spending `under`, status after spending `over`)."""
+    spend(p, under, ts=ts)
+    p.invoke()
+    first = p.state()["status"]
+    spend(p, over, ts=ts)
+    p.invoke()
+    return first, p.state()["status"]
+
+
+@case("tiers: a critical task is held at 4x the per-task ceiling, and not below")
+def _():
+    p = tier_run("- [ ] T1 [critical] risky  model=sonnet")
+    under, over = held_at(p, 3_900_000, 4_100_000)
+    check("tiers: a critical task is held at 4x the per-task ceiling, and not below",
+          under == "ACTIVE" and over == "BLOCKED" and p.private().get("spend_max") == 4_000_000
+          and "spend ceiling" in p.state()["blocked_reason"],
+          "at $3.90: %s, at $4.10: %s, max=%s" % (under, over, p.private().get("spend_max")))
+    return p
+
+
+@case("tiers: a mechanical task is held at 0.5x")
+def _():
+    p = tier_run("- [ ] T1 [mechanical] rename  model=haiku")
+    under, over = held_at(p, 400_000, 600_000)
+    check("tiers: a mechanical task is held at 0.5x",
+          under == "ACTIVE" and over == "BLOCKED" and p.private().get("spend_max") == 500_000,
+          "at $0.40: %s, at $0.60: %s, max=%s" % (under, over, p.private().get("spend_max")))
+    return p
+
+
+@case("tiers: relabelling a task [critical] mid-run, or raising the policy, buys nothing")
+def _():
+    # The relabel only matters once T2's window opens, so T1 closes first and
+    # the next window is computed. Read live, T2 would get $4.00 — or $10.00
+    # from the edited policy; captured, it is a standard task at $1.00.
+    p = tier_run("- [ ] T1 [standard] first  model=sonnet\n"
+                 "- [ ] T2 [standard] second  model=sonnet")
+    spend(p, 100_000)
+    p.invoke()
+    before = p.private()
+    text = p.raw().replace("T2 [standard]", "T2 [critical]")
+    open(p.run_path, "w").write(text)
+    p.write_policy(BUDGET % "{ critical: 10 }")
+    tick(p, "T1")
+    p.invoke()
+    after = p.private()
+    spend(p, 1_500_000, ts="2099-01-01T00:00:00Z")
+    p.invoke()
+    st = p.state()
+    check("tiers: relabelling a task [critical] mid-run, or raising the policy, buys nothing",
+          after.get("fingerprint") == before.get("fingerprint")
+          and after.get("task_started_at") != before.get("task_started_at")
+          and after.get("spend_max") == 1_000_000
+          and after.get("tiers", {}).get("T2") == "standard"
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "same run=%s, window moved=%s, max=%s, tier=%s, status=%s"
+          % (after.get("fingerprint") == before.get("fingerprint"),
+             after.get("task_started_at") != before.get("task_started_at"),
+             after.get("spend_max"), after.get("tiers"), st["status"]))
+    return p
+
+
+@case("tiers: closing a task moves the economy window to the next task's tier")
+def _():
+    p = tier_run("- [ ] T1 [standard] first  model=sonnet\n"
+                 "- [ ] T2 [critical] second  model=sonnet")
+    spend(p, 100_000)
+    p.invoke()
+    first = p.private().get("spend_max")
+    tick(p, "T1")
+    p.invoke()
+    nxt = p.private().get("spend_max")
+    under, over = held_at(p, 3_900_000, 4_100_000, ts="2099-01-01T00:00:00Z")
+    check("tiers: closing a task moves the economy window to the next task's tier",
+          first == 1_000_000 and nxt == 4_000_000 and under == "ACTIVE" and over == "BLOCKED",
+          "max %s -> %s; at $3.90: %s, at $4.10: %s" % (first, nxt, under, over))
+    return p
+
+
+@case("tiers: a fast wave of [critical, mechanical] is held at 4.5x, mid-turn too")
+def _():
+    tasks = ("- [ ] T1 [critical] a  model=sonnet files=a.py\n"
+             "- [ ] T2 [mechanical] b  model=haiku files=b.py")
+    p = tier_run(tasks, policy=NO_BUDGET + "\n", mode="fast")
+    p.write_policy(PARALLEL % 10)
+    # The first turn, before the Stop hook has captured anything.
+    spend(p, 4_400_000)
+    _, first_under = p.invoke_pretool()
+    os.unlink(os.path.join(p.dir, ".efficiency", "midturn-cache.json"))
+    spend(p, 4_600_000)
+    _, first_over = p.invoke_pretool()
+    under, over = held_at(p, 4_400_000, 4_600_000)
+    priv = p.private()
+    check("tiers: a fast wave of [critical, mechanical] is held at 4.5x, mid-turn too",
+          p.decision(first_under) is None and p.decision(first_over) == "deny"
+          and priv.get("wave") == ["T1", "T2"] and priv.get("spend_max") == 4_500_000
+          and under == "ACTIVE" and over == "BLOCKED",
+          "first turn %s/%s; wave=%s max=%s; at $4.40: %s, at $4.60: %s"
+          % (p.decision(first_under), p.decision(first_over), priv.get("wave"),
+             priv.get("spend_max"), under, over))
+    return p
+
+
+@case("tiers: the mid-turn guard holds a critical task's first turn at 4x")
+def _():
+    p = tier_run("- [ ] T1 [critical] risky  model=sonnet")
+    spend(p, 3_900_000)
+    _, under = p.invoke_pretool()
+    os.unlink(os.path.join(p.dir, ".efficiency", "midturn-cache.json"))
+    spend(p, 4_100_000)
+    _, over = p.invoke_pretool()
+    check("tiers: the mid-turn guard holds a critical task's first turn at 4x",
+          not p.private() and p.decision(under) is None and p.decision(over) == "deny",
+          "at $3.90: %s, at $4.10: %s" % (p.decision(under), p.decision(over)))
+    return p
+
+
+def captured_multipliers(policy):
+    p = tier_run("- [ ] T1 [critical] x  model=sonnet", policy=policy)
+    spend(p, 100_000)
+    p.invoke()
+    priv = p.private()
+    p.close()
+    return priv.get("multipliers"), priv.get("spend_max")
+
+
+# The hook's own fallback, not a restatement of it: whether those numbers are
+# the ones the shipped policy documents carry is the next case's question.
+DEFAULTS = dict(HOOK_MODULE.DEFAULT_TIER_MULTIPLIER)
+
+
+def shipped_policies():
+    """{label: policy text} for every policy this plugin hands a project.
+
+    The template, and the skeleton `init` writes out inline because a session
+    cannot read the plugin's own files. Either one drifting from the hook's
+    fallback means a pre-0.21 policy and a fresh one run under different numbers.
+    """
+    template = open(os.path.join(PLUGIN, "templates", "efficiency.md")).read()
+    skill = open(os.path.join(PLUGIN, "skills", "init", "SKILL.md")).read()
+    fence = "````markdown\n"
+    start = skill.index(fence) + len(fence)
+    skeleton = skill[start:skill.index("\n````", start)]
+    return {"templates/efficiency.md": template, "skills/init/SKILL.md": skeleton}
+
+
+def shipped_defaults_drift(policies):
+    """[(label, what, read, hook default)] wherever a shipped policy disagrees."""
+    drift = []
+    for label, text in sorted(policies.items()):
+        p = Project(run_file=False).write_policy(text)
+        try:
+            tiers = HOOK_MODULE.policy_tier_multipliers(p.dir)
+            agents = HOOK_MODULE.policy_max_agents(p.dir)
+        finally:
+            p.close()
+        if tiers != HOOK_MODULE.DEFAULT_TIER_MULTIPLIER:
+            drift.append((label, "tier_multiplier", tiers,
+                          HOOK_MODULE.DEFAULT_TIER_MULTIPLIER))
+        if agents != HOOK_MODULE.DEFAULT_MAX_AGENTS:
+            drift.append((label, "max_agents", agents, HOOK_MODULE.DEFAULT_MAX_AGENTS))
+    return drift
+
+
+@case("tiers: the hook's fallbacks are the values the shipped policies write")
+def _():
+    # The hook falls back to DEFAULT_TIER_MULTIPLIER and DEFAULT_MAX_AGENTS for a
+    # policy that predates the keys; the template and init's skeleton write them
+    # out for a policy that does not. Three copies of one fact, and until this
+    # case nothing compared them. The mutated copy proves the comparison bites.
+    policies = shipped_policies()
+    drift = shipped_defaults_drift(policies)
+    mutated = shipped_defaults_drift({
+        "mutated template": policies["templates/efficiency.md"]
+        .replace("critical: 4 }", "critical: 3 }", 1)
+        .replace("max_agents: 10", "max_agents: 9", 1)})
+    check("tiers: the hook's fallbacks are the values the shipped policies write",
+          not drift and [d[1] for d in mutated] == ["tier_multiplier", "max_agents"],
+          "drift: %s; mutated copy caught: %s" % (drift, mutated))
+
+
+@case("tiers: a policy with no tier_multiplier gets the shipped defaults")
+def _():
+    results = {
+        "no budget block": captured_multipliers(NO_BUDGET),
+        "budget without the key": captured_multipliers(
+            "---\nbudget:\n  task_usd: 5.00\n  continuations: 40\nrouting:\n"
+            "  tier_multiplier: { critical: 9 }\n---\n"),
+    }
+    check("tiers: a policy with no tier_multiplier gets the shipped defaults",
+          all(r == (DEFAULTS, int(DEFAULTS["critical"] * 1_000_000)) for r in results.values()), "got %s" % results)
+
+
+@case("tiers: a tier_multiplier that cannot be parsed scales by 1")
+def _():
+    flat = dict((t, 1.0) for t in DEFAULTS)
+    results = {
+        "not a map": captured_multipliers(BUDGET % "lots"),
+        "no colon": captured_multipliers(BUDGET % "{ critical 4 }"),
+        "empty block": captured_multipliers("---\nbudget:\n  tier_multiplier:\n---\n"),
+        "no frontmatter": captured_multipliers("budget:\n  tier_multiplier: { critical: 4 }\n"),
+        "no policy": captured_multipliers(None),
+    }
+    bad = {"negative": captured_multipliers(BUDGET % "{ mechanical: 0.5, critical: -4 }"),
+           "text": captured_multipliers(BUDGET % "{ mechanical: 0.5, critical: four }"),
+           "nan": captured_multipliers(BUDGET % "{ mechanical: 0.5, critical: nan }"),
+           "absent": captured_multipliers(BUDGET % "{ mechanical: 0.5 }")}
+    one_off = dict(flat, mechanical=0.5)
+    check("tiers: a tier_multiplier that cannot be parsed scales by 1",
+          all(r == (flat, 1_000_000) for r in results.values())
+          and all(r == (one_off, 1_000_000) for r in bad.values()),
+          "whole map: %s; one tier: %s" % (results, bad))
+
+
+@case("tiers: a multiplier of 1000 is capped at 10, in either form")
+def _():
+    flow = captured_multipliers(BUDGET % "{ critical: 1000 }")
+    block = captured_multipliers("---\nbudget:\n  task_usd: 1.00\n  tier_multiplier:\n"
+                                 "    mechanical: 0.25   # cheap\n    critical: 1000\n"
+                                 "gate: \"\"\n---\n")
+    check("tiers: a multiplier of 1000 is capped at 10, in either form",
+          flow[1] == 10_000_000 and block[1] == 10_000_000
+          and block[0].get("mechanical") == 0.25,
+          "flow=%s block=%s" % (flow, block))
+
+
+@case("tiers: an untagged task, or an unknown tier, scales by 1")
+def _():
+    results = {}
+    for tasks in ("- [ ] T1 untagged  model=sonnet", "- [ ] T1 [urgent] x  model=sonnet"):
+        p = tier_run(tasks)
+        spend(p, 100_000)
+        p.invoke()
+        results[tasks] = p.private().get("spend_max")
+        p.close()
+    check("tiers: an untagged task, or an unknown tier, scales by 1",
+          all(v == 1_000_000 for v in results.values()), "got %s" % results)
+
+
+@case("tiers: a state file from before tiers keeps its counters and its ceiling")
+def _():
+    # Its fingerprint included the tag. Read as a re-plan, the upgrade would
+    # zero every counter of a run in flight and hand it a fresh window at 4x.
+    import hashlib
+    p = tier_run("- [ ] T1 [critical] x  model=sonnet")
+    legacy = hashlib.sha256("T1 [critical] x  model=sonnet".encode()).hexdigest()
+    state = {"fingerprint": legacy, "task_key": legacy, "open_tasks_sig": legacy,
+             "continuations_used": 7, "continuations_max": 40, "gate_retries": 0,
+             "gate_retries_max": 2, "spend_max": 1_000_000,
+             "task_started_at": "2000-01-01T00:00:00Z", "same_task_blocks": 2,
+             "blocked": False, "blocked_reason": ""}
+    with open(os.path.join(p.dir, ".efficiency", "autopilot.json"), "w") as fh:
+        json.dump(state, fh)
+    spend(p, 1_500_000)
+    p.invoke()
+    priv = p.private()
+    st = p.state()
+    check("tiers: a state file from before tiers keeps its counters and its ceiling",
+          priv.get("continuations_used") == 7 and priv.get("spend_max") == 1_000_000
+          and priv.get("task_started_at") == "2000-01-01T00:00:00Z"
+          and st["status"] == "BLOCKED" and "spend ceiling" in st["blocked_reason"],
+          "used=%s max=%s window=%s status=%s"
+          % (priv.get("continuations_used"), priv.get("spend_max"),
+             priv.get("task_started_at"), st["status"]))
+    return p
+
+
+@case("rule 2: captured tiers edited into the wrong shapes scale by 1, no crash")
+def _():
+    p = tier_run("- [ ] T1 [critical] a  model=sonnet\n- [ ] T2 [critical] b  model=sonnet")
+    spend(p, 100_000)
+    p.invoke()
+    state = p.private()
+    state.update(tiers={"T2": 5}, multipliers={"critical": "x"}, order="T2")
+    with open(os.path.join(p.dir, ".efficiency", "autopilot.json"), "w") as fh:
+        json.dump(state, fh)
+    tick(p, "T1")
+    code, out = p.invoke()
+    check("rule 2: captured tiers edited into the wrong shapes scale by 1, no crash",
+          code == 0 and out and p.private().get("spend_max") == 1_000_000,
+          "code=%s out=%.80s max=%s" % (code, out, p.private().get("spend_max")))
     return p
 
 

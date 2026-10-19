@@ -22,9 +22,12 @@ activation pattern Claude Code documents for conditional hooks.
   spend_max        stops a task that keeps looking productive and never closes.
                    Its window opens when a task is CLOSED, not when the model
                    rewrites `current_task`: see "the model does not hold its own
-                   leash" below. This is the verdict half only — the same ceiling
-                   is also held inside the turn by autopilot-pretool.py, which
-                   refuses tool calls rather than waiting for the boundary
+                   leash" below. Each task's ceiling is the per-task one times
+                   its tier's multiplier; in a fast run the window is a whole
+                   wave, and its ceiling is the sum of its tasks'. This is the
+                   verdict half only — the same ceiling is also held inside the
+                   turn by autopilot-pretool.py, which refuses tool calls
+                   rather than waiting for the boundary
   gate_retries_max stops repair attempts on the same red gate
   continuations_max stops the run as a whole
   the platform      overrides any Stop hook after 8 consecutive blocks WITHOUT
@@ -52,6 +55,7 @@ unbounded run.
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -92,6 +96,42 @@ STALL_WARN = 3
 STALL_STOP = 5
 
 TASK_RE = re.compile(r"^\s*-\s*\[(?P<mark>[ xX>])\]\s*(?P<text>.+?)\s*$")
+
+# A task line may carry two scheduling annotations: `after=T1,T2`, the tasks
+# that must close first, and `files=a.py,b.py`, what it will touch. They say
+# *when* a task may run, not *what* it is, and they are kept out of every
+# identity this hook computes — see `statement` below.
+SCHED_RE = re.compile(r"\s+(?:after|files)=\S+")
+AFTER_RE = re.compile(r"(?:^|\s)after=(\S+)")
+FILES_RE = re.compile(r"(?:^|\s)files=(\S+)")
+
+# Where `parallel.max_agents` lives. Read once per run, on first sight.
+POLICY_FILE = os.path.join(".efficiency", "policy.md")
+# The value `templates/efficiency.md` ships. A policy written before 0.21 has
+# no `parallel:` block at all, and the run skill reads that as this default too:
+# the hook must size the same wave the skill dispatches, or the ceiling is wrong.
+DEFAULT_MAX_AGENTS = 10
+
+# A task's criticality tier, written after its id: `T2 [critical] ...`. It is
+# kept out of every identity, like the scheduling annotations: relabelling a
+# task must not be a re-plan, or `[critical]` would buy a fresh window at four
+# times the ceiling. Any bracketed word in that position is a tag; one that
+# names no known tier scales by 1.
+TIER_TAG_RE = re.compile(r"^(\S+)\s+\[([^\]\s]+)\]")
+
+# `budget.tier_multiplier` as `templates/efficiency.md` ships it. A policy
+# written before 0.21 has no such key, and gets these, for the same reason as
+# DEFAULT_MAX_AGENTS: the run skill plans with them, and the hook must agree.
+DEFAULT_TIER_MULTIPLIER = {"mechanical": 0.5, "standard": 1.0,
+                           "sensitive": 2.0, "critical": 4.0}
+
+# No multiplier is believed above this. The multiplier turns a per-task figure
+# into a ceiling, and nothing else bounds it: a typo of `40` for `4.0`, or
+# `1000` meant as a joke, would make the ceiling effectively infinite and the
+# guard decorative, with nothing said. Ten times the base still lets the most
+# expensive tier do real work; anything above it is more plausibly a mistake
+# than a decision, and a decision that large belongs in `task_usd` itself.
+MAX_TIER_MULTIPLIER = 10.0
 
 
 # ── talking to Claude Code ───────────────────────────────────────────────────
@@ -250,7 +290,12 @@ class Private:
     KEYS = ("fingerprint", "continuations_used", "continuations_max",
             "gate_retries", "gate_retries_max", "spend_max", "task_key",
             "task_started_at", "same_task_blocks", "open_tasks_sig",
-            "blocked", "blocked_reason")
+            "blocked", "blocked_reason",
+            # fast mode only — see "the spend window, per wave" in main()
+            "mode", "task_spend_max", "deps", "files", "max_agents", "wave",
+            "wave_history",
+            # the per-task ceiling's tier scaling, captured with the plan
+            "order", "tiers", "multipliers")
 
     def __init__(self, path):
         self.path = path
@@ -297,13 +342,47 @@ class Private:
         run.stop(reason)
 
 
-def fingerprint(run):
+def statement(text, legacy=False):
+    """A task line without its scheduling annotations or its tier tag.
+
+    Both identities below hash this rather than the raw line. If they hashed
+    `after=` as well, rewriting it would be a re-plan — every counter back to
+    zero — and in an economy run it would also change the open-task signature
+    and reopen the spend window, so a line of bookkeeping could buy a fresh
+    ceiling. Rule 3 forbids both. The dependencies the hook sizes a ceiling
+    from are captured once, on first sight, in the private state.
+
+    The tier tag is dropped for the same reason: it scales the ceiling, so it
+    is captured once and a relabel must not reach a fresh capture. Run files
+    before 0.21 did carry the tag, so their state files hold a fingerprint that
+    includes it; `legacy` computes that one, and main() migrates a state file
+    that matches it rather than reading the upgrade as a re-plan.
+
+    A line with neither is returned unchanged, so a run file written without
+    them fingerprints exactly as it always did.
+    """
+    text = SCHED_RE.sub("", text)
+    return text if legacy else TIER_TAG_RE.sub(r"\1", text, count=1)
+
+
+def task_id(text):
+    """The id a task line starts with: `T3` in `T3 [mechanical] ...`."""
+    words = text.split(None, 1)
+    return words[0].rstrip(":.)") if words else ""
+
+
+def fingerprint(run, legacy=False):
     """Identify a run by its task statements, ignoring the checkbox marks."""
-    statements = "\n".join(text for _mark, text in run.tasks())
+    statements = "\n".join(statement(text, legacy) for _mark, text in run.tasks())
     return hashlib.sha256(statements.encode("utf-8", "replace")).hexdigest()
 
 
-def open_signature(open_tasks):
+def known_run(priv, run):
+    """Has the hook already captured this run, under either fingerprint rule?"""
+    return priv.get("fingerprint") in (fingerprint(run), fingerprint(run, legacy=True))
+
+
+def open_signature(open_tasks, legacy=False):
     """Identify the *state* of a run: which of its tasks are still open.
 
     This is the only progress signal the model cannot move without actually
@@ -311,7 +390,344 @@ def open_signature(open_tasks):
     `current_task` is a line the block reason tells it to rewrite every time.
     Both the spend window and the stall guard key off this, for that reason.
     """
-    return hashlib.sha256("\n".join(open_tasks).encode("utf-8", "replace")).hexdigest()
+    joined = "\n".join(statement(t, legacy) for t in open_tasks)
+    return hashlib.sha256(joined.encode("utf-8", "replace")).hexdigest()
+
+
+def run_mode(run):
+    """`fast` only when the run file says so; anything else is today's economy."""
+    return "fast" if run.get("mode").strip().lower() == "fast" else "economy"
+
+
+def task_deps(run):
+    """{id: [ids it waits for]}, as the run file declares them right now."""
+    deps = {}
+    for _mark, text in run.tasks():
+        found = AFTER_RE.search(text)
+        deps[task_id(text)] = [d for d in found.group(1).split(",") if d] if found else []
+    return deps
+
+
+def task_files(run):
+    """{id: [paths or globs]}, or None for a task that declared none."""
+    files = {}
+    for _mark, text in run.tasks():
+        found = FILES_RE.search(text)
+        paths = [f for f in found.group(1).split(",") if f] if found else []
+        files[task_id(text)] = paths or None
+    return files
+
+
+def policy_front(project):
+    """The policy's frontmatter lines, or None when there is none to read."""
+    try:
+        text = open(os.path.join(project, POLICY_FILE), errors="replace").read()
+    except OSError:
+        return None
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        return None
+    return lines[1:end]
+
+
+def policy_max_agents(project):
+    """`parallel.max_agents` from the project's policy.
+
+    A policy without a `parallel:` block, or a block without the key, predates
+    it and gets the shipped default. A policy that is missing, unreadable, or
+    holds a value that is not a whole number gets 1 — the safe reading, not a
+    guess: every wave becomes one task wide and the ceiling is economy's.
+    """
+    front = policy_front(project)
+    if front is None:
+        return 1
+    try:
+        start = next(i for i, l in enumerate(front) if re.match(r"parallel:\s*(#.*)?$", l))
+    except StopIteration:
+        return DEFAULT_MAX_AGENTS
+    for line in front[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[:1].isspace():
+            break              # the block ended without naming the key
+        key, _, value = line.strip().partition(":")
+        if key.strip() == "max_agents":
+            value = value.split("#", 1)[0].strip()
+            return max(1, int(value)) if value.isdigit() else 1
+    return DEFAULT_MAX_AGENTS
+
+
+def sane_multiplier(value):
+    """A multiplier as a number in (0, MAX_TIER_MULTIPLIER], or 1.
+
+    Anything that is not a positive finite number — text, zero, a negative, a
+    NaN, a boolean — scales by 1, which is the ceiling the plan would have had
+    without tiers at all. Used on the policy and again on the captured state,
+    which a person can edit.
+    """
+    if isinstance(value, bool):
+        return 1.0
+    try:
+        m = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(m) or m <= 0:
+        return 1.0
+    return min(m, MAX_TIER_MULTIPLIER)
+
+
+def _multiplier_entries(front, start, indent):
+    """`key: value` pairs of a `tier_multiplier:` written as an indented block."""
+    entries = []
+    for line in front[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) <= indent:
+            break
+        entries.append(line.split("#", 1)[0].strip())
+    return entries
+
+
+def policy_tier_multipliers(project):
+    """`budget.tier_multiplier` from the project's policy, one number per tier.
+
+    A policy without the key — no `budget:` block, or a block that does not
+    name it — predates it and gets DEFAULT_TIER_MULTIPLIER. A policy that is
+    missing, has no readable frontmatter, or writes the key in a shape that
+    cannot be read gets 1 for every tier: today's flat ceiling, not a guess.
+    A tier the map does not name, or names with something that is not a
+    positive number, gets 1 on its own. Every value is capped.
+    """
+    flat = dict((t, 1.0) for t in DEFAULT_TIER_MULTIPLIER)
+    front = policy_front(project)
+    if front is None:
+        return flat
+    try:
+        start = next(i for i, l in enumerate(front) if re.match(r"budget:\s*(#.*)?$", l))
+    except StopIteration:
+        return dict(DEFAULT_TIER_MULTIPLIER)
+    for i in range(start + 1, len(front)):
+        line = front[i]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[:1].isspace():
+            break              # the block ended without naming the key
+        key, _, value = line.strip().partition(":")
+        if key.strip() != "tier_multiplier":
+            continue
+        value = value.split("#", 1)[0].strip()
+        if not value:
+            entries = _multiplier_entries(front, i, len(line) - len(line.lstrip()))
+        elif value.startswith("{") and value.endswith("}"):
+            entries = [e.strip() for e in value[1:-1].split(",") if e.strip()]
+        else:
+            return flat
+        found = {}
+        for entry in entries:
+            if ":" not in entry:
+                return flat
+            tier, _, number = entry.partition(":")
+            found[unquote(tier.strip()).lower()] = unquote(number.strip())
+        if not found:
+            return flat
+        return dict((t, sane_multiplier(found[t]) if t in found else 1.0) for t in flat)
+    return dict(DEFAULT_TIER_MULTIPLIER)
+
+
+def task_tiers(run):
+    """{id: tier} for every task, "" for a task line with no tier tag."""
+    tiers = {}
+    for _mark, text in run.tasks():
+        found = TIER_TAG_RE.match(text)
+        tiers[task_id(text)] = found.group(2).lower() if found else ""
+    return tiers
+
+
+def task_plan(run, project):
+    """Everything a window's ceiling is computed from, to be captured once."""
+    return {"deps": task_deps(run), "files": task_files(run),
+            "max_agents": policy_max_agents(project),
+            "order": [task_id(text) for _mark, text in run.tasks()],
+            "tiers": task_tiers(run),
+            "multipliers": policy_tier_multipliers(project)}
+
+
+def tier_scale(plan, tid):
+    """The captured multiplier of one task's captured tier.
+
+    Read from what was captured, never from the run file or the policy, so
+    relabelling a task `[critical]` or raising a multiplier mid-run moves
+    nothing. A state without tiers — written before they existed, or edited
+    into another shape — scales every task by 1, which is today's ceiling.
+    """
+    tiers = plan.get("tiers") if isinstance(plan.get("tiers"), dict) else {}
+    mults = plan.get("multipliers") if isinstance(plan.get("multipliers"), dict) else {}
+    tier = tiers.get(tid)
+    if not isinstance(tier, str) or tier not in mults:
+        return 1.0
+    return sane_multiplier(mults.get(tier))
+
+
+def first_open(run, plan):
+    """An economy window's task: the first open one, in the captured order."""
+    order = plan.get("order")
+    if not isinstance(order, list):
+        order = [task_id(text) for _mark, text in run.tasks()]
+    closed = closed_ids(run)
+    for tid in order:
+        if str(tid) not in closed:
+            return [str(tid)]
+    return []
+
+
+def closed_ids(run):
+    return {task_id(text) for mark, text in run.tasks() if mark == "x"}
+
+
+WILDCARDS = "*?[{"
+
+
+def _stem(pattern):
+    """The literal part of a path or glob, before its first wildcard.
+
+    `{` counts although fnmatch does not know it: `src/{a,b}.py` is a brace
+    pattern to every shell and glob library a task is likely to be written for.
+    """
+    cut = min([i for i in (pattern.find(c) for c in WILDCARDS) if i >= 0] or [len(pattern)])
+    return pattern[:cut]
+
+
+def _norm(path):
+    """One spelling per path: `./src//A.py` and `src/a.py` are the same file.
+
+    Lower-cased because the default macOS filesystem is case-insensitive, and
+    a false "same" only splits a wave.
+    """
+    path = os.path.normpath(str(path).strip().replace("\\", "/"))
+    while path.startswith("./"):
+        path = path[2:]
+    return path.lower()
+
+
+def _pair_overlaps(x, y):
+    import fnmatch
+    x, y = _norm(x), _norm(y)
+    if x.startswith("/") != y.startswith("/"):
+        # One absolute, one relative, and no project root to resolve against.
+        # The same file only if the absolute one ends with the relative one;
+        # with a wildcard or a `..` in sight, nobody can tell, so: overlap.
+        absolute, relative = (x, y) if x.startswith("/") else (y, x)
+        if relative.startswith("..") or any(c in x + y for c in WILDCARDS):
+            return True
+        return absolute.endswith("/" + relative)
+    if x == y or fnmatch.fnmatch(x, y) or fnmatch.fnmatch(y, x):
+        return True
+    sx, sy = _stem(x), _stem(y)
+    if (sx != x and y.startswith(sx)) or (sy != y and x.startswith(sy)):
+        return True
+    return x.startswith(y.rstrip("/") + "/") or y.startswith(x.rstrip("/") + "/")
+
+
+def files_overlap(a, b):
+    """Could two `files=` lists touch the same path? Says yes when unsure.
+
+    Globs are compared by matching each against the other and by the literal
+    stem before their first wildcard, so `src/**` and `src/a.py` overlap and so
+    do `src/a*` and `src/ab*`. A false "yes" splits a wave in two, which costs
+    time and narrows the ceiling; a false "no" would widen it.
+    """
+    return any(_pair_overlaps(x, y) for x in a for y in b)
+
+
+def current_wave(run, plan):
+    """The wave the run skill would dispatch next, by the same three rules.
+
+    The open tasks whose `after=` dependencies are all closed; then, in list
+    order, a task joins only if its `files=` overlap no task already in, and a
+    task with no `files=` runs alone; then no more than `max_agents`.
+
+    A dependency naming a task that does not exist never closes, so its task
+    never joins a wave. That, like every other doubt here, leaves the ceiling
+    narrower than intended, which is the safe direction to be wrong in.
+    """
+    # The plan normally comes from the hook's own state file, which a person can
+    # edit. Any shape other than the one written reads in the narrow direction:
+    # a dependency that is not a list never closes, a `files=` that is not a
+    # list touches everything.
+    deps = plan.get("deps") if isinstance(plan.get("deps"), dict) else {}
+    files = plan.get("files") if isinstance(plan.get("files"), dict) else {}
+
+    def waits_for(tid):
+        d = deps.get(tid)
+        if d is None:
+            return []
+        return [str(x) for x in d] if isinstance(d, list) else [None]
+
+    def touches(tid):
+        f = files.get(tid)
+        return [str(x) for x in f] if isinstance(f, list) and f else None
+    try:
+        cap = max(1, int(plan.get("max_agents", 1)))
+    except (TypeError, ValueError):
+        cap = 1
+    closed = closed_ids(run)
+    wave = []
+    for mark, text in run.tasks():
+        tid = task_id(text)
+        if mark == "x" or tid in wave:
+            continue
+        if not all(d in closed for d in waits_for(tid)):
+            continue
+        mine = touches(tid)
+        if not mine:
+            if not wave:
+                wave.append(tid)
+                break          # touches everything: it runs alone
+            continue           # it will lead a wave of its own later
+        if any(not touches(o) or files_overlap(mine, touches(o)) for o in wave):
+            continue
+        wave.append(tid)
+        if len(wave) >= cap:
+            break
+    return wave
+
+
+def window_ceiling(per_task, mode, ids, plan):
+    """The spend ceiling of one window.
+
+    Each task's ceiling is the per-task figure times its tier's multiplier. An
+    economy window holds one task, the first of `ids`; a fast window holds the
+    whole wave and its ceiling is the sum of its tasks'. With no task to price
+    — a wave nothing is ready for — it is the per-task figure, unscaled.
+    """
+    if mode != "fast":
+        ids = ids[:1]
+    if not ids:
+        return per_task
+    return sum(int(round(per_task * tier_scale(plan, tid))) for tid in ids)
+
+
+def window_ids(run, plan, mode):
+    """The tasks the window open now is spent on: a wave, or one task."""
+    return current_wave(run, plan) if mode == "fast" else first_open(run, plan)
+
+
+def first_window_ceiling(run, project):
+    """The ceiling of a run's first window, before this hook has captured one.
+
+    For autopilot-pretool.py, which bounds the first turn from the run file
+    because nothing has been captured yet. In a fast run that turn dispatches
+    the whole first wave, so the per-task figure alone would refuse it early.
+    The same function sizes the window main() captures, so the two agree.
+    """
+    mode = run_mode(run)
+    plan = task_plan(run, project)
+    return window_ceiling(run.get_int("task_spend_max_micro_usd", 0), mode,
+                          window_ids(run, plan, mode), plan)
 
 
 def window_start(run):
@@ -426,17 +842,53 @@ def main():
     priv = Private(os.path.join(project, STATE_FILE))
     now = fingerprint(run)
 
+    # A state file written before 0.21 fingerprinted the tier tags too. Same
+    # run, older rule: carry its counters across rather than read the upgrade
+    # as a re-plan. It captured no tiers, so every task keeps scaling by 1 —
+    # exactly the ceiling it was approved under.
+    if priv.get("fingerprint") != now and priv.get("fingerprint") == fingerprint(run, legacy=True):
+        priv.set("fingerprint", now)
+        for key, rule in (("task_key", run.open_tasks()), ("open_tasks_sig", run.open_tasks())):
+            if priv.get(key) == open_signature(rule, legacy=True):
+                priv.set(key, open_signature(rule))
+        priv.save()
+
     if priv.get("fingerprint") != now:
         # A different task list: a fresh run, or one that was re-planned. This is
         # the only legitimate way counters go back to zero, and it cannot happen
         # by editing the frontmatter — only by changing the work itself.
+        #
+        # The mode, the `after=` and `files=` of every task, and the policy's
+        # `parallel.max_agents` are captured here with the ceilings, and for the
+        # same reason: each of them sizes the spend ceiling of a fast run, so each
+        # is read once, when the developer has just approved the plan, and never
+        # again. Flipping `mode:` to fast, deleting an `after=`, splitting a
+        # `files=` or raising `max_agents` mid-run changes nothing the hook reads.
+        # Every task's tier, and the policy's multiplier per tier, are captured
+        # the same way: they scale every window's ceiling, in either mode.
+        mode = run_mode(run)
+        plan = task_plan(run, project)
+        per_task = run.get_int("task_spend_max_micro_usd", 0)
+        wave = current_wave(run, plan) if mode == "fast" else []
         priv.data = {
             "fingerprint": now,
             "continuations_used": 0,
             "continuations_max": run.get_int("continuations_max", 0),
             "gate_retries": 0,
             "gate_retries_max": run.get_int("gate_retries_max", 2),
-            "spend_max": run.get_int("task_spend_max_micro_usd", 0),
+            # `spend_max` is the ceiling of the window open NOW, which is what
+            # autopilot-pretool.py reads; `task_spend_max` is the approved
+            # per-task figure it is computed from. In economy they are equal.
+            "spend_max": window_ceiling(per_task, mode, window_ids(run, plan, mode), plan),
+            "task_spend_max": per_task,
+            "mode": mode,
+            "deps": plan["deps"],
+            "files": plan["files"],
+            "max_agents": plan["max_agents"],
+            "order": plan["order"],
+            "tiers": plan["tiers"],
+            "multipliers": plan["multipliers"],
+            "wave": wave,
             # Two keys that hold the same kind of hash and must NOT be collapsed
             # into one. `task_key` is the open-task set as of when the current
             # spend window opened, seeded with the real signature so a fresh run
@@ -508,7 +960,73 @@ def main():
     # which is a task closing. The cost is that the window now also holds the
     # tail of the turn in which the previous task closed — a ceiling that
     # charges slightly too much, which is the safe direction for a ceiling.
-    if priv.get("task_key") != open_sig:
+    #
+    # ── the spend window, per wave ──────────────────────────────────────────
+    # A fast run works a whole wave at once, one subagent per task, and every
+    # subagent's spend lands in this one session's transcript. Keyed per task,
+    # the window was wrong twice over: N tasks' spend measured against one
+    # task's ceiling, and each closure reopening the window and erasing the
+    # spend of the wave's tasks still running.
+    #
+    # So in fast mode the window belongs to the wave: the ids that were ready
+    # when it opened, held in the private state, never re-derived from the run
+    # file while any of them is open. It closes only when all of them have, and
+    # its ceiling is the sum of its tasks' tier-scaled ceilings. The wave is the
+    # one the run skill dispatches — dependencies, then file conflicts, then
+    # `max_agents` — computed from what was captured on first sight. A model
+    # that widens it mid-flight, by editing `after=`, `files=` or the policy, or
+    # by adding a task, moves nothing: the edits are ignored, and a new task is
+    # a re-plan, which is the existing, visible way to start over.
+    #
+    # `current_task` is a label here as in economy: the run skill points it at
+    # the wave's first id, and nothing below keys on it.
+    #
+    # A state file from before fast mode existed has no `mode`, and reads as
+    # economy: exactly the behaviour it was written under.
+    spent_on = task
+    if priv.get("mode") == "fast":
+        # Hand-edited into another shape, this state reads as an empty wave,
+        # which reopens the window at the next one — a report, not a crash.
+        wave = priv.get("wave")
+        wave = [str(i) for i in wave] if isinstance(wave, list) else []
+        if all(i in closed_ids(run) for i in wave):
+            following = current_wave(run, priv.data)
+            if following != wave:
+                # What the closing wave cost, measured here — the one moment its
+                # window is known to be complete — so run-report reads a figure
+                # this hook wrote rather than one the model copied. None when it
+                # cannot be measured; the guard below is what fails closed.
+                if wave:
+                    history = priv.get("wave_history")
+                    history = [h for h in history if isinstance(h, dict)] \
+                        if isinstance(history, list) else []
+                    history.append({"wave": wave,
+                                    "started_at": priv.get("task_started_at"),
+                                    "spent": measure_spend(payload.get("transcript_path"),
+                                                           priv.get("task_started_at"))})
+                    priv.set("wave_history", history)
+                    run.set("wave_spend_micro_usd", "; ".join(
+                        "%s=%s" % (",".join(str(i) for i in h.get("wave"))
+                                   if isinstance(h.get("wave"), list) else "?",
+                                   "unmeasured" if h.get("spent") is None else h["spent"])
+                        for h in history))
+                    run.save()
+                wave = following
+                priv.set("wave", wave)
+                priv.set("spend_max", window_ceiling(
+                    priv.get_int("task_spend_max", priv.get_int("spend_max", 0)),
+                    "fast", wave, priv.data))
+                priv.set("task_started_at", iso_now())
+                priv.save()
+        spent_on = "the wave %s" % (", ".join(wave) or "(no task ready)")
+    elif priv.get("task_key") != open_sig:
+        # A task closed, so the window moves to the next one in captured order,
+        # at that task's tier. A state from before tiers has no per-task figure
+        # of its own: its ceiling is the per-task one, so record that first.
+        if "task_spend_max" not in priv.data:
+            priv.set("task_spend_max", priv.get_int("spend_max", 0))
+        priv.set("spend_max", window_ceiling(priv.get_int("task_spend_max", 0), "economy",
+                                             first_open(run, priv.data), priv.data))
         priv.set("task_key", open_sig)
         priv.set("task_started_at", iso_now())
         priv.save()
@@ -525,7 +1043,7 @@ def main():
                                 "stopped instead of continuing blind.")
             allow_with_note(
                 "efficiency autopilot: stopped — spend could not be measured for %s. "
-                "Check transcript_path and hooks/lib/spend.py." % task)
+                "Check transcript_path and hooks/lib/spend.py." % spent_on)
         run.set("task_spend_micro_usd", spent)
         # The per-model split as well, so /efficiency:run-report can read it from
         # the project instead of running a script it has no way to reach.
@@ -547,11 +1065,11 @@ def main():
         if spent >= spend_max:
             priv.block_run(run, "%s reached its spend ceiling (%s of %s) without closing. "
                                 "It needs a human opinion before more is spent on it."
-                                % (task, usd(spent), usd(spend_max)))
+                                % (spent_on, usd(spent), usd(spend_max)))
             allow_with_note(
                 "efficiency autopilot: stopped — %s spent %s against a ceiling of %s "
                 "without closing. Your call on what to do with it."
-                % (task, usd(spent), usd(spend_max)))
+                % (spent_on, usd(spent), usd(spend_max)))
 
     # ── guard 2: continuations for the whole run ─────────────────────────────
     used = priv.get_int("continuations_used", 0)

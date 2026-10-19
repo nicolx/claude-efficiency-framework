@@ -207,9 +207,13 @@ def main():
     # defend and the run file holds what the developer approved minutes ago, so
     # the first turn of a run is bounded too. It is the longest turn of most
     # runs, and leaving it out would have left the gap this hook exists to close.
-    fresh = priv.get("fingerprint") != stop.fingerprint(run)
+    fresh = not stop.known_run(priv, run)
     if fresh:
-        spend_max = run.get_int("task_spend_max_micro_usd", 0)
+        # The first open task's tier-scaled ceiling in economy; in a fast run,
+        # whose first turn dispatches the whole first wave, the sum of its tasks'.
+        # The Stop hook owns the arithmetic, so the two cannot disagree about
+        # the first window.
+        spend_max = stop.first_window_ceiling(run, project)
         window = stop.window_start(run)
     else:
         spend_max = priv.get_int("spend_max", 0)

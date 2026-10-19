@@ -350,7 +350,7 @@ is refreshed whenever the plugin changes.
 | Turn an objective into an approved run | `/efficiency:plan-run` | per piece of work |
 | Execute it | `/efficiency:run` | per piece of work |
 | Read what happened | `/efficiency:run-report` | after |
-| Parallelise independent work | `/efficiency:fanout` | only when you ask |
+| Parallelise a batch outside a run | `/efficiency:fanout` | only when you ask |
 
 ### You do not have to use the commands
 
@@ -381,9 +381,10 @@ the benefits are real or decorative:
 
 ### Calibrate the ceiling after a run or two
 
-The per-task ceiling ships at **$5.00** and is switched on from the first day. Once `run-report` has
-shown you what a task really costs, put that period's worth in `basket_usd` and the ceiling becomes
-20% of a measurement instead of 20% of a guess.
+The per-task ceiling ships at **$5.00** for a standard task and is switched on from the first day;
+`tier_multiplier` scales it for the other tiers, from half for mechanical work to four times for
+critical. Once `run-report` has shown you what a task really costs, put that period's worth in
+`basket_usd` and the base becomes 20% of a measurement instead of 20% of a guess.
 
 **`plan-run` is where your attention goes.** You approve a list once: each task with its criticality
 tier, its model, and acceptance criteria a reviewer can check. Everything after that is a
@@ -392,6 +393,13 @@ consequence of that approval.
 Criticality is assigned **by declared path pattern first**. Where the patterns are silent the model
 classifies, says so in one line, and proposes the pattern that would have decided it — so the map
 gets built by using it rather than at a desk.
+
+**Economy or fast is decided in the plan, too.** Each task names the files it touches and what it
+waits for, and that groups the list into waves of tasks that cannot collide. Economy works them one
+after another in one session, the cheap way. Fast gives every task of a wave its own subagent, so you
+wait for the longest task instead of the sum, and pay each subagent's context on top. The policy's
+`parallel` block says when that trade is worth proposing — wide waves *and* long serial work — and
+you can override it in a word either way. Approving the plan approves the mode, and its cost.
 
 ## The six guards
 
@@ -404,12 +412,16 @@ this order:
    unbounded in silence — measured on a real run that executed three tasks that way. A ceiling
    someone deliberately set to `0` is a decision and is honoured, but it is named in every
    continuation rather than left to be inferred.
-2. **The per-task spend ceiling.** Default 20% of your declared basket, measured from the session
-   transcript in dollars at API list prices — **subagents included**, since delegating review to an
-   expensive model is the point. It catches the case the others miss: one task that keeps looking
-   productive and never closes. It stops that task and asks you, and the session stays alive. The
-   window it measures opens when a task is *closed*, not when `current_task` is rewritten: the model
-   writes that line, and a ceiling it can reopen is not a ceiling.
+2. **The per-task spend ceiling.** Default 20% of your declared basket for a standard task, scaled
+   by the task's tier — `tier_multiplier`, read once when the run starts and capped at 10 by the
+   hook, so a policy edited mid-run cannot widen it. Measured from the session transcript in dollars
+   at API list prices — **subagents included**, since delegating review to an expensive model is
+   the point. It catches the case the others miss: one task that keeps looking productive and never
+   closes. It stops that task and asks you, and the session stays alive. The window it measures
+   opens when a task is *closed*, not when `current_task` is rewritten: the model writes that line,
+   and a ceiling it can reopen is not a ceiling. In fast mode the window belongs to the whole wave:
+   its ceiling is the sum of its tasks' scaled ceilings, and it closes only when every task in the
+   wave has.
    It is the one guard that also acts **inside** a turn: a second hook refuses tool calls once the
    ceiling is crossed, instead of waiting for a turn that has no length limit to end. The refusal
    stops the spending; the stop above still delivers the verdict, at the boundary, as it always did.

@@ -25,6 +25,12 @@ Two reasons, and both are about the developer, not the model:
 So: fan out only when asked, and refuse when `gate` in `.efficiency/policy.md`
 is empty. Say why rather than just declining.
 
+This is the tool for parallel work the developer **asks for by name**. Work the
+charter's economy-or-fast test has already sent fast — in an approved plan, or
+outside one with the choice logged — is `run`'s fast mode, and "never unasked"
+does not apply there: the plan line or the log line is where the cost was
+declared, and the developer's word or `default_mode` can always turn it off.
+
 ## The test that decides whether the work qualifies
 
 **Are the items genuinely independent?** If item 3 changes a file item 7 also

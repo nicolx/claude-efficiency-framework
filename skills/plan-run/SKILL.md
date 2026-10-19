@@ -26,6 +26,20 @@ task too small to have acceptance criteria is administration, not work.
 Order them so that each one leaves the gate green. A task that can only be
 verified together with the next one should be one task.
 
+For each task, also write down:
+
+- **`files=`** — the paths, or globs, it will touch. You need them for the tier
+  anyway; writing them down is what lets the run know which tasks can share a
+  wave. A task left without `files=` is treated as touching everything, and runs
+  alone.
+- **`after=`** — the ids of the tasks that must be closed before it starts, when
+  the order matters for more than files. Leave it out when it does not.
+
+The order of the list still matters: it is the order of a run in economy mode,
+and within a wave it is the order tasks are read. `after=` and `files=` do not
+replace the rule above — every task, whichever wave it lands in, still leaves the
+gate green.
+
 ## 2. Assign the tier — patterns first
 
 Read `tiers` in `.efficiency/policy.md`. For each task, work out which files it
@@ -62,25 +76,73 @@ From `budget` in `.efficiency/policy.md`:
 
 - `continuations_max` — the run's budget for automatic restarts.
 - `gate_retries_max` — repair attempts on the same red gate.
-- The per-task spend ceiling: `basket_usd × task_pct / 100` when `basket_usd` is
-  set, otherwise `task_usd`. Convert to micro-dollars for the run file
-  (`× 1000000`), because the hook does integer arithmetic.
+- The base spend ceiling, a standard task's: `basket_usd × task_pct / 100` when
+  `basket_usd` is set, otherwise `task_usd`. Convert to micro-dollars for the
+  run file (`× 1000000`), because the hook does integer arithmetic. Write the
+  base, not a tier's figure: the hook does the scaling.
+- Each task's ceiling: the base × its tier's `tier_multiplier`. The multipliers
+  are read once, when the run starts, so a policy edited mid-run cannot widen a
+  run already approved. A policy without the key gets the defaults `init`
+  writes.
+- In fast mode, a wave's ceiling is the sum of its tasks' ceilings.
 
-State the ceiling in dollars when you present the list. It is the number that
-decides how long a run can chase one problem before it stops and asks, and the
-developer should see it before approving.
+State the ceilings in dollars when you present the list — the base, and each
+tier's where the plan uses more than one. They decide how long a run can chase
+one problem before it stops and asks, and the developer should see them before
+approving.
 
-## 5. Present it, and get one approval
+## 5. Group the waves and resolve the mode
 
-Show a compact table: task, tier, model, review, acceptance criteria in brief.
-Underneath it, three lines: the gate command, the per-task ceiling, and the
-continuation budget.
+Group the tasks into waves. A wave is the open tasks whose `after=` ids are all
+closed, minus file conflicts — two tasks whose `files=` overlap never share one,
+and a task with no `files=` runs alone — capped at `parallel.max_agents`. Walk the
+list wave by wave as if each closed, and you have the shape of the run: how many
+waves, and how wide the widest is.
+
+A policy written before the `parallel` block existed has none. Read that as the
+defaults `init` writes, which the hook assumes too, and propose adding the block
+under "Proposed policy additions" so the project can see and tune it.
+
+Then resolve the mode, against `parallel` in `.efficiency/policy.md` and the
+charter's principle:
+
+- **A verbal override wins.** The developer saying to go fast, or to keep it
+  cheap — in any words, any language — decides it, whatever `default_mode` says.
+- **Otherwise `default_mode`**, when it is `economy` or `fast`.
+- **Otherwise (`auto`) judge it**: **fast** only if the widest wave is at least
+  `parallel.min_wave` *and* the serial estimate — how long this session would
+  take doing them one after another, counting test runs, iterations and code to
+  read, not lines to type — reaches `parallel.min_serial_minutes`;
+  **economy** in every other case. Width is countable from the plan; the minutes
+  are your estimate from having read the code, made before anything starts. Of
+  the two, duration is the stronger signal: fully specified tasks are written
+  in a batch by one session faster than subagents can start, while tasks that
+  need turns — unfamiliar code, slow tests, failures to iterate on — repay a
+  subagent early. Say which one decided.
+
+The run file records `fast` or `economy`, never `auto`: the decision is made here,
+where it can be approved, not at execution time.
+
+## 6. Present it, and get one approval
+
+Show a compact table: task, tier, model, review, acceptance criteria in brief —
+and in fast mode, the wave each task falls in. Underneath it, four lines: the
+gate command, the per-task ceiling, the continuation budget, and the mode:
+
+> Mode: **fast** — wide and long (~2 h serial) · 3 waves · widest 5 · premium: <estimate>
+
+The premium is an estimate and should be called one: no overhead per subagent has
+been measured yet, so give your reasoning — each subagent rebuilds context the
+main session already holds — rather than a figure that looks measured. It is there
+so the developer approves the trade knowingly, not to be precise. For economy, one line
+is enough: the mode and the reason — waves and premium say nothing there.
 
 Then ask for approval **once**. Say plainly what approval means: the run will
 execute to the end and stop only for a reason in `stop_for`, and every autonomous
-decision will be written to the run log.
+decision will be written to the run log. Approving the plan approves the mode —
+in fast mode, the extra cost is part of what was agreed.
 
-## 6. Write the run file
+## 7. Write the run file
 
 Write `.efficiency/run.md`:
 
@@ -97,11 +159,14 @@ task_started_at: <now, ISO-8601 UTC, e.g. 2026-09-05T14:02:11Z>
 task_spend_micro_usd: 0
 task_spend_max_micro_usd: <the ceiling in micro-dollars>
 blocked_reason:
+mode: <economy | fast>
+mode_reason: <one line — the override, the default, or width and duration>
 ---
 
 ## Tasks
-- [ ] T1 [standard] <statement>    model=sonnet
-- [ ] T2 [critical] <statement>    model=sonnet review=opus
+- [ ] T1 [standard] <statement>    model=sonnet files=src/a.py,src/b.py
+- [ ] T2 [critical] <statement>    model=sonnet review=opus files=src/auth/**
+- [ ] T3 [mechanical] <statement>  model=haiku after=T1 files=src/c.py
 
 ## Acceptance criteria
 ### T1

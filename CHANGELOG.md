@@ -15,6 +15,81 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.21.0] — 2026-10-19
+
+### Fixed — spend was counted up to four times over: recalibrate your ceilings
+
+A transcript writes one row per content block (thinking, text, tool use), and every row repeats
+the whole message's `usage`. `hooks/lib/spend.py` summed the rows, so every figure it produced
+since the meter shipped was too high — between 1.3× and 4.0× across the sessions measured, more
+in sessions with many subagents or thinking blocks. It now counts each message once, and agrees
+with Claude Code's own `total_cost_usd` to the cent. Measured in § 6 of
+`docs/verified-platform-behaviour.md`; `scripts/probes/transcript-shape.sh --live` re-derives it.
+
+**What that means for you:** a ceiling stopped at a fraction of what it said. The same `task_usd`
+or `basket_usd` now allows up to four times more real spend than it did. If you calibrated either
+from a `/efficiency:run-report` figure, run one task on this release and calibrate again. The
+shipped default `task_usd: 5.00` was never calibrated, and now means what it says.
+
+### Added — economy or fast: the plan trades cost for time when the work is worth it
+
+Routing decided *which* model does a task. The charter now also decides *how many at once*. Before
+work starts, the main agent weighs the estimated serial duration against the width of the widest
+wave of independent tasks:
+
+- **economy** — short or barely parallelisable work stays in the main session, as before;
+- **fast** — long work that splits into wide waves gets one subagent per task, the whole wave
+  dispatched in one message, each on its own tier's model. It costs more; you wait for the
+  longest task of each wave instead of the sum.
+
+The choice is one line of the plan, so approving the plan approves the trade; outside a plan it is
+written to the decision log. *"go fast"* / *"fai in fretta"* and *"save money"* / *"risparmia"*
+override it, in any language.
+
+- Task lines gain `files=` (what the task touches) and `after=` (what it waits for). Overlapping
+  `files=` never share a wave. Old task lines keep working.
+- The run file gains `mode:` and `mode_reason:`. A run file without `mode:` is economy.
+- The policy gains a `parallel` block — `default_mode`, `min_wave`, `min_serial_minutes`,
+  `max_agents`. A policy without it uses the defaults; `plan-run` proposes adding it.
+  `max_agents: 1` opts out entirely.
+- `run` executes fast mode wave by wave, one gate per wave. `run-report` reports spend per wave.
+- `fanout`'s "never unasked" now covers only fanout asked for by name; fast mode chosen by the
+  charter's test is not that.
+
+The defaults — `min_wave: 2`, `min_serial_minutes: 2` — are measured, in § 20 of
+`docs/verified-platform-behaviour.md` (`scripts/probes/parallel-crossover.sh`). On work that needs
+turns, fast was already 47% faster and 43% cheaper at two items, because Haiku does the iterating
+Sonnet would otherwise pay for; on fully specified work the main session writes everything in one
+batch, and fast pays off only past eight items. So the serial estimate counts the waiting — test
+runs, iterations, code to read — not the typing.
+
+### Changed — the spend ceiling scales with the task's tier
+
+The ceiling exists to stop a task that loops while looking productive; the saving comes from
+routing, not from it. One flat figure either strangled critical work or let mechanical work loop
+for a long time. `budget.tier_multiplier` — `mechanical: 0.5, standard: 1, sensitive: 2,
+critical: 4` by default — now scales `task_usd` per task. A policy without the key gets those
+defaults: in an existing project a critical task gets four times the room it had, a mechanical one
+half, and standard tasks are unchanged. Multipliers are captured when a run starts and capped.
+
+### Changed — the spend ceiling follows the wave in fast mode
+
+The hook owns the window as before (rule 3), but in fast mode it is the **wave**: the sum of its
+tasks' ceilings, closed only when every task of the wave is. The mode, the plan's `after=`,
+`files=` and tiers, and `max_agents` are captured on first sight of the run, so editing any of
+them mid-run cannot widen a ceiling. The hook records each finished wave's measured spend as
+`wave_spend_micro_usd` in the run file. Economy runs behave as before. A run the hook had already
+seen before you upgraded keeps its counters and the ceiling it was approved under; one it first
+sees after the upgrade is captured under the new rules. The selftest grows from 102 to
+139 checks.
+
+### Changed — re-measured on Claude Code 2.1.303
+
+Every section of `docs/verified-platform-behaviour.md` backed by a headless probe was re-run on
+2.1.303, and the alias mapping in `hooks/lib/model-costs.json` re-confirmed. One cell moved: in
+`dontAsk` mode a `Bash` write into `.claude/` went through once in two tries (§ 9). The layout does
+not rest on it. The sections that need a person in the session (§§ 8, 10–13) were not re-run.
+
 ## [0.20.2] — 2026-10-18
 
 No file a consumer receives has changed since 0.20.1: everything below is repo-internal. It is

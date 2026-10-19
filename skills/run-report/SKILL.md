@@ -27,7 +27,8 @@ first line.
 ## What to gather
 
 **From `.efficiency/run.md`:** the task list and its marks, the log,
-`status`, `blocked_reason`, the counters, and any proposed policy additions.
+`status`, `blocked_reason`, the counters, `mode` and `mode_reason`, and any
+proposed policy additions. A run file without `mode` was economy.
 
 **Real spend**, already measured for you. The autopilot writes two frontmatter
 keys into the run file every time it checks the ceiling:
@@ -45,6 +46,14 @@ A third key appears only when something went wrong with the measurement:
   **If that key is present, say so before the table**, give the total as an upper
   bound rather than a figure, and name the ids — the fix is a line in the cost
   table, and nobody can make it if the report hides the problem.
+
+In fast mode the window those keys measure is a **wave**, not a task, and it
+resets when the wave closes — so they only ever hold the wave in flight. The
+finished waves are in a fourth key, written by the hook as each one closes:
+
+- `wave_spend_micro_usd` — `T1,T2,T3=2500000; T4=900000`, in wave order. A value
+  of `unmeasured` means the hook could not read that wave's spend: report it as
+  unknown, never as zero.
 
 Divide by 1000000 for dollars. Both come from the session transcript, **subagent
 transcripts included** — those live in a sibling directory and are usually the
@@ -65,6 +74,10 @@ being trustworthy.
 **Decisions taken autonomously**, straight from the log. This is the part the
 developer is actually reading. Do not summarise it away — if there were eleven
 decisions, show eleven lines.
+
+**Mode.** Say which it was and why, from `mode_reason`. In fast mode, give the
+spend **per wave**, with its width: that is the premium the developer approved,
+and the evidence for whether the trade was worth it.
 
 **Spend, by model.** Report dollars, and say what the figure is: what this work
 would cost at API list prices, a proxy for plan allowance rather than a bill.
@@ -91,10 +104,17 @@ it is unresolved, not only in the narrative.
 The first few reports have a second job: turning `basket_usd` from a guess into
 a measurement.
 
-Show the developer what this run cost per task, and what the ceiling was. Then:
+Show the developer what this run cost per task, grouped by tier, against that
+tier's ceiling — the base × the tier's `tier_multiplier`. A single average
+across tiers hides exactly what the multipliers are for: a critical task near
+its ceiling and a mechanical one far under it. In fast mode, per task is a
+wave's spend divided by its width — an average, and say so; a mixed-tier wave
+compares against the sum of its tasks' ceilings. Then:
 
 - if `basket_usd` is still 0, they now have a real per-task figure to size it
   from — offer the arithmetic rather than a number they have to derive
+- if one tier keeps landing near its ceiling, or far below it, that tier's
+  multiplier is the number to change, not the base
 - if a guard stopped the run, say whether the ceiling looks too tight for the
   work or the work genuinely ran away. Those need opposite fixes, and the
   difference is visible in whether the task was still making progress

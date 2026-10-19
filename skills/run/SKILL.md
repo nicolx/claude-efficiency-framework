@@ -28,7 +28,11 @@ the point.
 improvise a run: an unapproved list executed autonomously is the failure this
 whole design is arranged to prevent.
 
-## For each task, in order
+**Read `mode` from the frontmatter.** It was decided and approved in the plan;
+do not re-decide it here. A run file without `mode` — older ones, or one armed
+by `autopilot` without it — is economy.
+
+## Economy mode: each task, in order
 
 1. **Mark it started.** Set `current_task` to this task's id — and nothing else in
    the frontmatter. It names the task in everything the hook reports; it does not
@@ -63,6 +67,48 @@ whole design is arranged to prevent.
 
    A task marked done that is *not* done is the opposite failure and it is worse:
    it is the one lie that makes the whole log untrustworthy.
+
+## Fast mode: wave by wave
+
+The trade was approved with the plan: more spend, in exchange for waiting on the
+longest task of each wave instead of the sum of them all. Repeat until no task is
+open:
+
+1. **Compute the wave.** The open tasks whose `after=` ids are all closed, minus
+   file conflicts — two tasks whose `files=` overlap never share a wave, and a
+   task with no `files=` runs alone — capped at `parallel.max_agents`. Take them
+   in list order. Set `current_task` to the wave's first id; as in economy mode,
+   it names, it does not count.
+2. **A wave of one runs in this session**, exactly as an economy task. There is
+   no speed to gain from a subagent, only its cost.
+3. **Design first, where routed.** For the wave's critical tasks with
+   `design: opus`, start one `efficiency:architect` per task, all in one message,
+   and wait for their plans.
+4. **Dispatch the wave in one message** — one subagent per task, every call in
+   the same assistant message. Calls spread over several messages run one after
+   another, and the wave becomes a slower, dearer economy run. Route each by its
+   model: `haiku` → `efficiency:implementer-fast`; `sonnet` → a general-purpose
+   subagent on `sonnet`. In fast mode `sonnet` tasks become subagents too — that
+   is where the time comes from. Give each a precise brief: the statement, its
+   acceptance criteria, the architect's plan if there is one, and its `files=`
+   as the only files it may touch. Tell it not to edit `.efficiency/run.md` —
+   the run file has one writer, this session. **A subagent that discovers it
+   needs a decision must hand back rather than improvise**: with a wave running
+   at once, improvised decisions are unreviewable.
+5. **Wait for the whole wave**, then review where the task calls for it — one
+   `efficiency:reviewer` per task, again in one message. The review rules are
+   economy mode's step 4, per task.
+6. **Run the gate once for the wave.** Red is repaired in this session, and the
+   retry limit counts consecutive red gates, as it always has, whatever the wave.
+7. **Close the wave's tasks.** Tick each one whose criteria are met, with its log
+   line. A task handed back is not ticked: answer it from the declared defaults
+   and log the answer, then do it in this session; if nothing covers it, it is a
+   `stop_for` reason. Then **one line for the wave**: its ids and the gate
+   result. Its spend is recorded by the hook, not by you.
+
+The hook's spend ceiling covers the whole wave, not each subagent: the window
+opens with the wave and closes when every task in it does. The arithmetic lives
+in the hook and the policy, not here.
 
 ## Reporting back
 

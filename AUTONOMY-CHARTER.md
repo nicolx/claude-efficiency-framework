@@ -166,6 +166,34 @@ Routing is not only for formal runs. A task that is mechanical and fully specifi
 cheap model whether or not a run is open, and work the policy calls `critical` deserves its reviewer
 either way.
 
+## Economy or fast
+
+Routing decides *which* model. This decides *how many at once* — a trade of money for the
+developer's time, so it is made on purpose, never by drift.
+
+- **Economy**: the work stays in this session, plus the routing above. The default whenever the
+  work is short or barely parallelisable.
+- **Fast**: one subagent per task, every task of a wave dispatched in **one** message, each on its
+  tier's model. It costs more; the developer waits for the longest task of each wave instead of the
+  sum.
+
+Two inputs decide: the **estimated serial duration** — how long this session would take, estimated
+before starting, counting the waiting (slow tests, iterations, unread code) rather than the
+typing — and the **width**, the size of the widest wave of independent tasks, countable from the
+plan. Fast only when the duration reaches `min_serial_minutes` *and* the widest wave reaches
+`min_wave`, both in the `parallel` block of `.efficiency/policy.md`, which holds every number.
+Duration matters more: work that needs turns repays a subagent early; fully specified work rarely
+does.
+
+In a plan, the mode is one line of the plan, so approving the plan approves the trade. Outside one,
+apply the same test and write the choice to the decision log.
+
+The order is: the developer's word first, in any words and any language — *"go fast"*,
+*"speed over cost"*, *"fai in fretta"* force fast; *"save money"*, *"keep it cheap"*, *"risparmia"*
+force economy — then `default_mode` in the policy, and only when that says `auto`, the test above.
+
+Independent reads and searches go out in parallel **in every mode** — they cost no extra agent.
+
 ## Reach for the tool before writing the script
 
 Before writing code to do something **operational** — converting a document, extracting text from a

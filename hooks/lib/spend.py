@@ -17,7 +17,11 @@ assumed (docs/verified-platform-behaviour.md):
     spawned three subagents. They live in a sibling directory instead, and on
     the session that produced this framework they were 17% of real spend.
 
-Both are read, because the expensive half of a routed run is the delegated
+  * a transcript writes one row per content BLOCK, and every row repeats the
+    whole message's usage. Rows are counted once per message (message_key);
+    summing them overcounted 2-4x.
+
+Both transcripts are read, because the expensive half of a routed run is the delegated
 half: a ceiling blind to subagents is a ceiling on the cheap work only.
 
 Exit codes: 0 measured · 2 cannot measure (bad input, unreadable transcript).
@@ -170,6 +174,37 @@ def line_cost(usage, price):
     return dollars
 
 
+def message_key(rec, message):
+    """What identifies one assistant message across the rows that carry it.
+
+    A transcript does not write one row per message. It writes one row per
+    content block — a thinking block, a text block and two tool calls are four
+    rows — and every one of them carries the WHOLE message's `usage`. Summing
+    rows therefore charged each message once per block: 2-4x on real sessions,
+    $0.89 measured against a `total_cost_usd` of $0.22 (docs/verified-platform-
+    behaviour.md § 6). The rows share `message.id`, and `requestId` beside it.
+
+    None for a row with neither: it is counted on its own, as before, because a
+    row nobody can match is still spend.
+    """
+    for value in (message.get("id"), rec.get("requestId")):
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def output_tokens(usage):
+    """The row's output count, as a number — the rows of one message differ here.
+
+    Input and cache figures are identical on every row of a message, but the
+    output count is what had been streamed when the row was written: 3, then 3,
+    then 3513 on one measured subagent message. Only the largest is the bill, so
+    keeping the first row would undercount, which a ceiling must never do.
+    """
+    value = usage.get("output_tokens", 0)
+    return value if isinstance(value, (int, float)) else 0
+
+
 def main(argv):
     if len(argv) < 4:
         print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
@@ -200,7 +235,10 @@ def main(argv):
         print("cannot read the transcript: %s" % exc, file=sys.stderr)
         return 2
 
-    totals = {}
+    # One entry per assistant message: key -> (output_tokens, model, usage).
+    # See message_key for why rows cannot simply be summed.
+    messages = {}
+    anonymous = []
     for fh in handles:
       with fh:
         for raw in fh:
@@ -212,6 +250,8 @@ def main(argv):
             except ValueError:
                 # A transcript being written to can end in a partial line.
                 # Skipping it under-reports by at most one message.
+                continue
+            if not isinstance(rec, dict):
                 continue
 
             message = rec.get("message")
@@ -226,8 +266,19 @@ def main(argv):
                 continue
 
             model = normalise_model(message.get("model"))
-            totals[model] = totals.get(model, 0.0) + line_cost(
-                usage, price_for(costs, model, unpriced))
+            key = message_key(rec, message)
+            if key is None:
+                anonymous.append((model, usage))
+                continue
+            out = output_tokens(usage)
+            kept = messages.get(key)
+            if kept is None or out >= kept[0]:
+                messages[key] = (out, model, usage)
+
+    totals = {}
+    for model, usage in anonymous + [(m, u) for _, m, u in messages.values()]:
+        totals[model] = totals.get(model, 0.0) + line_cost(
+            usage, price_for(costs, model, unpriced))
 
     if by_model:
         print(json.dumps(

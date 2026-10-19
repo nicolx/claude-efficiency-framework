@@ -65,7 +65,12 @@ Show the developer, compactly:
   them from what the code already does, concretely enough to act on
 - the `deny` rules you found, named as the commands they block
 - the spend ceiling: `task_usd` stays at its shipped value until a run has been
-  measured — say so rather than inventing a number
+  measured — say so rather than inventing a number. It is a standard task's;
+  `tier_multiplier` scales it for the other tiers
+- the `parallel` block, at its shipped values: it decides when a run trades
+  cost for time by running a wave of independent tasks as parallel subagents.
+  `default_mode: auto` lets each plan decide; `max_agents: 1` opts the project
+  out of parallel runs altogether
 
 Ask for corrections **once**, in a single exchange. If the developer confirms or
 says nothing needs changing, proceed. Do not walk them through the file field by
@@ -99,7 +104,14 @@ budget:
   gate_retries: 2            # repair attempts on the same red gate
   basket_usd: 0              # a period's worth of usage; 0 until measured
   task_pct: 20               # per-task ceiling, as a share of the basket
-  task_usd: 5.00             # the fallback ceiling while basket_usd is 0
+  task_usd: 5.00             # standard task's ceiling while basket_usd is 0
+  tier_multiplier: { mechanical: 0.5, standard: 1, sensitive: 2, critical: 4 }
+
+parallel:
+  default_mode: auto         # auto | economy | fast
+  min_wave: 2                # fast needs a wave this wide...
+  min_serial_minutes: 2      # ...and this much serial work, waiting included
+  max_agents: 10             # 1 opts out of parallel runs
 
 tiers:                       # only the exceptions; everything else is "standard"
   critical: []               # being wrong here is expensive and slow to discover

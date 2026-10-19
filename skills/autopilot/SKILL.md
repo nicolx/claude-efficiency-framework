@@ -59,10 +59,13 @@ task_started_at: <now, ISO-8601 UTC>
 task_spend_micro_usd: 0
 task_spend_max_micro_usd: <the per-task ceiling, in micro-dollars>
 blocked_reason:
+mode: <economy | fast>
+mode_reason: <one line>
 ---
 
 ## Tasks
-- [ ] T1 [<tier>] <statement>    model=<model>
+- [ ] T1 [<tier>] <statement>    model=<model> files=<paths or globs>
+- [ ] T2 [<tier>] <statement>    model=<model> after=T1 files=<paths or globs>
 
 ## Acceptance criteria
 ### T1
@@ -70,12 +73,16 @@ blocked_reason:
 
 ## Log
 - armed from a plain instruction to keep going, <timestamp>
+- mode <economy | fast>: <why>
 ```
 
-The ceiling is `basket_usd × task_pct / 100` when `basket_usd` is set, otherwise
-`task_usd`, times 1000000.
+The figure written there is the **base**, a standard task's ceiling:
+`basket_usd × task_pct / 100` when `basket_usd` is set, otherwise `task_usd`,
+times 1000000. Never a tier's figure: the hook scales it by each task's
+`budget.tier_multiplier`, and in fast mode sums the scaled figures over the wave,
+whose window closes only when the whole wave does.
 
-Three rules carry over from `plan-run` and are not optional here:
+Four rules carry over from `plan-run` and are not optional here:
 
 - **Assign tiers from the policy's declared path patterns**, and where they are
   silent classify, say so in one line, and propose the missing pattern.
@@ -84,15 +91,27 @@ Three rules carry over from `plan-run` and are not optional here:
   guard stops it. This is the failure mode this framework has actually
   experienced, not a hypothetical.
 - **Split the work into tasks with one outcome each**, in an order that leaves
-  the gate green at every boundary.
+  the gate green at every boundary, each with the `files=` it will touch and,
+  where order matters beyond files, the `after=` it waits for.
+- **Resolve the mode** in the charter's order: the developer's override, then
+  `parallel.default_mode`, then `min_wave` and `min_serial_minutes` against
+  the widest wave and the serial estimate, as `plan-run` defines it. Nobody
+  approves a plan
+  here, so the choice goes in the log instead, with its reason: that line is
+  the only place the developer sees the trade was made.
 
 ## Say what you armed, in one line
 
 Name the ceiling and the continuation budget, because those decide how long the
-run can go before it stops and asks:
+run can go before it stops and asks. The ceiling you name is the effective one —
+the base scaled by tier — never the base alone as if it were the ceiling:
 
-> Autopilot armed: 3 tasks, $5.00 per-task ceiling, 40 continuations. It will
-> stop on its own and tell you why.
+> Autopilot armed: 3 tasks, economy, $5.00 base, $20.00 for the critical task,
+> 40 continuations. It will stop on its own and tell you why.
+
+In fast mode, name the waves and the widest one too, and give the ceiling as the
+widest wave's figure, the sum of its tasks' scaled ceilings: it is the extra
+spend the developer did not see in a plan.
 
 Then start working. Do not wait for confirmation — the instruction to keep going
 was the confirmation.

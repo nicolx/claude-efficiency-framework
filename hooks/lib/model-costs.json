@@ -35,8 +35,8 @@
   "_default_comment": "Unknown model ids fall back to the most expensive entry on purpose: an unknown model overestimates spend, so the ceiling fires early rather than late.",
   "resolved": {
     "_comment": "Measured with scripts/probes/model-ids.sh, one near-empty session per alias, reading the resolved id out of the stream-json init event.",
-    "measured": "2026-10-18",
-    "claude_code_version": "2.1.302",
+    "measured": "2026-10-19",
+    "claude_code_version": "2.1.303",
     "aliases": {
       "haiku": "claude-haiku-5-5",
       "opus": "claude-opus-5-5",

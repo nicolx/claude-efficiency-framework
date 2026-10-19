@@ -19,7 +19,7 @@ Re-measured: **2026-10-18** · Claude Code **2.1.302** — every headless probe 
 every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells moved; § 14 re-measured;
 § 19 added, the first run of `efficiency:fanout`. Later the same day §§ 1, 4 and 5 were re-run, as
 the first version-keyed staleness check asked: unchanged, except a new `effort` key in the `Stop`
-payload.
+payload. § 20 added: where fanning out starts to save wall time.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -56,7 +56,10 @@ for this event.
 `scripts/probes/stop-cap.sh`, which now prints the keys of the first payload it receives: every key
 above is still there, `transcript_path` included, and one has been added — `effort`.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
+*Re-measured 2026-10-19 on 2.1.303 by `scripts/probes/stop-cap.sh`, all five runs: the same eleven
+keys, `transcript_path` and `effort` included. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/stop-cap.sh`
 
 ## 2. `stop_hook_active`, and whether a project's own Stop hook coexists
 
@@ -115,7 +118,12 @@ numbers.*
 every session isolated by `--setting-sources project,local`: 9 invocations each in cap mode, guard 4
 at block 6 beside a blocking project gate. Unchanged.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-coexistence.sh`
+*Re-measured 2026-10-19 on 2.1.303 by `scripts/probes/stop-coexistence.sh both`: 9 invocations each
+in cap mode, the same `False,True,…` series for both hooks; guard 4 at block 6 beside the blocking
+gate, `continuations_used` 1 to 5 once per turn, 11 invocations each in lockstep, and the session
+ended on `--max-turns` at 25 turns for $0.013. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/stop-coexistence.sh`
 
 ## 3. The block cap — and the condition that governs it
 
@@ -203,7 +211,17 @@ by the framework at block 6. Unchanged. Run again the same afternoon, `stall` ga
 three times in a row. The probe keeps no transcript, so the 16 is unexplained; one tool call in the
 middle of the run would reset the counter and produce exactly that shape, but nothing recorded that.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303: `stop-cap.sh` 6 / 6 in read and write modes,
+`stall-ordering.sh` stopped by the framework at block 6, `stop-coexistence.sh` 9 each with two
+hooks. Unchanged. `stall` gave 16 once more, then 9 twice — and this time the session's transcript was
+still in `~/.claude/projects`, where the probe's own temporary directory does not reach, so the 16 is
+explained: after the seventh block Haiku called `Read` on the probe's hook script to see why it kept
+being blocked, and nine more invocations followed. 7 + 9 = 16, the cap counter reset by one tool call
+exactly as the table above says. The 16 of 2026-10-18 is almost certainly the same shape. It is a
+finding about the model, not the platform: a stalled model sometimes investigates its leash, and that
+investigation is progress as far as the cap can tell.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/stop-cap.sh`
 `scripts/probes/stall-ordering.sh` `scripts/probes/stop-coexistence.sh`
 
 ## 4. Blocking contract
@@ -224,7 +242,10 @@ it from the turn continuing.*
 *Re-measured 2026-10-18 on 2.1.302 by `scripts/probes/stop-coexistence.sh both`: the neighbouring
 hook's reason was obeyed on all 10 turns it blocked, beside the autopilot's own.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-coexistence.sh`
+*Re-measured 2026-10-19 on 2.1.303 by the same probe: both hooks blocked through this contract, and
+the neighbour's reason was obeyed on 10 of the 11 turns it blocked. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/stop-coexistence.sh`
 
 ## 5. Spend and turn limits
 
@@ -236,7 +257,10 @@ framework carries its own ceilings rather than delegating to the platform.
 `scripts/probes/stop-cap.sh read 12` and `write 12`: both ended on `--max-turns` at 6 invocations.
 `--max-budget-usd` is passed by every probe and was not exercised to its limit.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/stop-cap.sh`
+*Re-measured 2026-10-19 on 2.1.303 by the same two runs: both ended on `--max-turns` at 6
+invocations. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/stop-cap.sh`
 
 ## 6. Subagent turns are in separate transcripts — and this one bit
 
@@ -268,10 +292,58 @@ Both must be normalised before a price lookup. An unmatched id falls to whatever
 declares — here deliberately the most expensive model, so an unknown id stops a run early rather
 than late, but for a *known* model priced as the fallback that is a tenfold error.
 
-*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`). Not re-measured since.*
+*Measured 2026-09-05 on Claude Code 2.1.261 (`276a29e`), manually on a real session with subagents.
+The sibling `subagents/` directory was seen again on 2026-10-18 on 2.1.302 by the `--live` run
+below; `isSidechain` and the two id shapes were not re-checked.*
 
-Verified: 2026-09-05 · Claude Code 2.1.261 · manual (`scripts/probes/transcript-shape.sh` needs a
-real session with subagents)
+### One row per content block, not one per message
+
+A transcript does not write one row per assistant message. It writes one row per **content block**
+— a thinking block, a text block and two tool calls are four rows — and every row carries the whole
+message's `usage`. The rows share `message.id`, and `requestId` with it. Summed row by row, which is
+what `hooks/lib/spend.py` did until this was found, every message is charged once per block.
+
+| Session | Rows with usage | Messages | Rows summed | Per message | `total_cost_usd` |
+|---|---|---|---|---|---|
+| `--live` probe, Haiku, one subagent | 10 | 6 | $0.0090 | $0.0050 | $0.0050 |
+| `--live` probe, Haiku, no subagent | 5 | 2 | $0.0075 | $0.0029 | $0.0029 |
+| a 12-subagent fan-out session | 114 | 50 | $0.8899 | $0.2241 | $0.22 |
+
+Across a dozen other sessions on this machine the row sum ran 1.3x to 4.0x the per-message figure —
+higher the more blocks a message has, so higher on tool-heavy and thinking-heavy work.
+
+The rows of one message do not all say the same thing, and which one is kept matters:
+
+- **input and cache fields** (`input_tokens`, `cache_read_input_tokens`,
+  `cache_creation_input_tokens`, `cache_creation`) were identical on every row of every message;
+- **`output_tokens`** was identical across a main session's rows, but in a **subagent** transcript it
+  grows as the message streams — 3, 3, then 3,513 on one message — and `iterations` and
+  `server_tool_use` appear only on the last row.
+
+So `spend.py` keeps, per message, the row with the largest `output_tokens`. Keeping the first would
+have undercounted subagent output, the direction a ceiling must never err in. A row with neither id
+is still counted on its own.
+
+*Measured 2026-10-18 on Claude Code 2.1.302 (`claude --version`): `transcript-shape.sh` on existing
+transcripts for the row shape, and `transcript-shape.sh --live` for the comparison with the
+session's own `total_cost_usd`, the only figure here not computed from the transcript.*
+
+*Note, 2026-10-18 — figures recorded before this fix came from the row sum.* Absolute dollar figures
+measured by `spend.py` before this fix are inflated by roughly 1.3–4x; the per-task figure in § 15
+($1.76 for three trivial edits) is one of them, on top of the fallback pricing that section already
+explains. **Shares** of spend move much less, because both halves of a session are inflated by
+similar factors: on the surviving transcript of the three-subagent session this section was written
+from, the subagent share is 4.9% summed by row and 4.7% by message, up to the end of 2026-09-05. The
+17% above could not be re-derived from that transcript under today's price table by either method;
+it is left as recorded.
+
+*Re-measured 2026-10-19 on 2.1.303 by `transcript-shape.sh --live`: the subagent transcript is in the
+sibling `subagents/` directory; 9 rows with usage made 5 messages, input and cache usage identical
+across each message's rows; every row summed $0.0105, `spend.py` per message $0.0047, against a
+`total_cost_usd` of $0.0047 — 2.24x and 1.00x. Unchanged. No message in this short run had
+`output_tokens` differing between its rows, so the streaming-subagent case was not exercised again.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/transcript-shape.sh`
 
 ## 7. Project settings in an untrusted directory — EXPIRED on 2.1.289
 
@@ -324,7 +396,9 @@ broken probe alike, and only one of those is a platform finding.
 session isolated by `--setting-sources project,local`: a fresh directory's project hook fires, as
 does the same hook through `--settings`. The expiry stands.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/settings-trust.sh`
+*Re-measured 2026-10-19 on 2.1.303 by the same probe: both hooks fired. The expiry stands.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/settings-trust.sh`
 
 ## 8. How a plugin actually reaches a project
 
@@ -430,7 +504,25 @@ single uncontrolled cell, and was half wrong for three releases. A tool that wri
 expected it to is not necessarily disobeying — but neither is one observation a rule. Vary the one
 thing you did not think was a variable.
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/dot-claude-writes.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303 by `scripts/probes/dot-claude-writes.sh`, run twice.
+`Write` and `Edit` are unchanged in all four modes, in both runs: refused into `.claude/` under
+`acceptEdits` and `dontAsk`, allowed under `auto` and `bypassPermissions`, the root control landing
+every time. `acceptEdits` · `Bash` and `bypassPermissions` · `Bash` are unchanged too. `auto` · `Bash`
+wrote nothing in either run, the classifier declining the command, as on 2.1.302.*
+
+**One cell moved, and it is one the layout does not rest on.** `dontAsk` · `Bash` wrote both
+places in one run of two — `.claude/` included — where 2.1.296 refused `.claude/` with the root
+landing and 2.1.302 refused the tool outright in 3 of 3. The transcripts kept in
+`~/.claude/projects` show what differed between the two runs: the session that wrote opened its
+command with `cd "<project>" || exit 1` and was let through; the one that did not chained
+`printf … > file && echo …` and was refused with "denied because Claude Code is running in don't
+ask mode", `--allowedTools Bash` notwithstanding. So under `dontAsk` on 2.1.303 whether `Bash` runs
+at all appears to depend on the command, and when it runs a shell redirect into `.claude/` is not
+stopped. One observation, recorded as such. It does not weaken the layout: on 2.1.303 the
+`.claude/` refusal is shown only for `Write` and `Edit`, and a layout that depended on a model
+choosing `Bash` would depend on the shape of a command.
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/dot-claude-writes.sh`
 
 ## 10. Enabling a plugin takes two halves, and committing one is not enough
 
@@ -693,7 +785,14 @@ fourth ran under a permission mode that denied the writes the skills exist to pe
 fixed a defect named in a transcript. None of them was a nudge to make a number look better — which
 is the only thing separating a probe from a wish.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/skill-auto-invoke.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303 by `scripts/probes/skill-auto-invoke.sh`, isolated,
+three trials per cell: `backlog`, `init`, `run`, `run-report` 3/3 in both languages and both controls
+silent, as before. `plan-run` 3/3 · 3/3, `fanout` 0/3 · 3/3, `autopilot` 0/3 · 2/3 — the same shape as
+the isolated arm of 2026-10-18, English the language that misses, and no skill chosen in place of
+another. The first-trial transcripts say what they said before: the model did the TODO list itself and
+added the four docstrings itself. Unchanged; the decision above stands.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/skill-auto-invoke.sh`
 
 ## 15. A run really does route, and what that costs is harder to know than it looks
 
@@ -750,7 +849,15 @@ ceilings, silently, and the symptom surfaces minutes later and somewhere else.*
 session isolated by `--setting-sources project,local`: implementer-fast, reviewer, implementer-fast,
 three tasks closed, gate green. Unchanged.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/run-routing.sh`
+*Note, 2026-10-18: the $1.76 was also summed row by row, and a transcript writes one row per content
+block (§ 6), so it is inflated a second time, by roughly 1.3–4x, independently of the pricing. The
+routing claim is unaffected; the dollar figure was never a cost.*
+
+*Re-measured 2026-10-19 on Claude Code 2.1.303 by `scripts/probes/run-routing.sh`: implementer-fast,
+reviewer, implementer-fast, three tasks closed, gate green, and the fresh report session opened with
+its verdict and spend by model, no unpriced model flagged. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/run-routing.sh`
 
 ## 16. `haiku`, `sonnet` and `opus` are not model ids, and nobody was checking what they meant
 
@@ -827,7 +934,10 @@ isolated by `--setting-sources project,local`: the same three ids, all priced. `
 cost table still records 2.1.296, so the gate reports the mapping unverified until it is updated —
 that is a change to a shipped file and waits for the next release.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/model-ids.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303 by `scripts/probes/model-ids.sh`: the same three ids,
+all priced. `resolved` in the cost table updated to 2.1.303; no alias moved.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/model-ids.sh`
 
 ## 17. A turn can be stopped from the inside, and its spend can be read while it runs
 
@@ -925,7 +1035,13 @@ project,local`: the transcript is incremental (1 → 1 → 3 usage rows, Stop sa
 honoured with one refused call of overshoot, and a subagent's own tool call reaches the hook
 carrying the parent's transcript. Unchanged.*
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/midturn-transcript.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303: the transcript is incremental (1 → 1 → 4 usage rows,
+Stop saw 4, so this time the last mid-turn reading trailed by nothing); two permitted calls ran, the
+third was denied and did not execute, and the model ended the turn quoting the ceiling; the
+subagent's marked `Bash` call reached `PreToolUse` with the parent's `transcript_path` and
+`session_id`, the delegation still named `Agent`. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/midturn-transcript.sh`
 `scripts/probes/midturn-deny.sh` `scripts/probes/midturn-subagent.sh`
 
 ## 18. A plugin can ship an output style, and only its prefixed name reaches it
@@ -957,7 +1073,10 @@ Three findings, two of which would have been guessed wrong:
 The plugin needs no manifest entry: an `output-styles/` directory beside `.claude-plugin/` is found
 on its own.
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/plugin-output-style.sh`
+*Re-measured 2026-10-19 on 2.1.303 by the same probe, two trials per case: the identical table — bare
+name 0/2, every prefixed selection 2/2, the control `default` and 0/2. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/plugin-output-style.sh`
 
 ## 19. `efficiency:fanout` fans out, and refuses without a gate
 
@@ -993,7 +1112,135 @@ can say. Whether the text reached the model has to be read from what the model t
 Not measured: more items than one batch holds, so whether it actually batches at ten, and whether it
 runs the gate between batches, is still only what the skill says.
 
-Verified: 2026-10-18 · Claude Code 2.1.302 · `scripts/probes/fanout.sh`
+*Re-measured 2026-10-19 on Claude Code 2.1.303 by `scripts/probes/fanout.sh`, once: four
+`implementer-fast` delegations in one message, one gate run after the batch, 4/4 green, nothing
+touched outside `src/`, $0.119; with `gate: ""` no delegation, no edit, and the refusal gave the
+skill's reason, $0.055. Unchanged.*
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/fanout.sh`
+
+## 20. Fanning out pays past a minute of serial work; turn-bound work gets there at two
+
+The fast mode trades money for time: one subagent per task of a wave, all in one message. Below
+some size the subagents' start-up and the driver's round trips eat the saving. `parallel.min_wave`
+and `parallel.min_serial_minutes` are meant to mark that size. They were guesses; this is the
+measurement.
+
+Measured with `scripts/probes/parallel-crossover.sh`, Sonnet driving, Haiku
+(`efficiency:implementer-fast`) subagents, every session headless under `-p`. Two sessions per
+width, on the same throwaway project:
+
+- **economy** — the prompt says do every item in the main session, no subagents.
+- **fast** — the prompt says start one subagent per item, all N in one assistant message, then run
+  the gate once.
+
+Cost is `total_cost_usd` from the last `result` event, which includes the subagents (§ 6). Wall time
+is measured outside the process. Every item was green on every run, every delegation left in one
+message, and peak concurrency always equalled N.
+
+### Two workloads
+
+**`WORKLOAD=spec`: fully specified items.** N independent stub modules — an expression evaluator, an
+INI parser, a CSV reader and writer, an LRU cache, Dijkstra, Roman numerals both ways, semver, and so
+on — each two to four functions with a written spec and eight to twelve unittest cases. Nothing has
+to be discovered.
+
+**`WORKLOAD=turns`: turn-bound items, the case the fast mode is for.** Each item is a ~240-line module
+nobody has seen, whose conventions live only in the module. Its stub's spec leaves out two
+behaviours. Its test sleeps 10 seconds and reveals those behaviours one failure at a time. Making an
+item really turn-bound took three tries, and two of them are findings in their own right:
+
+- With the cases in plain base64, Sonnet read the hidden behaviours straight out of the test file and
+  was green on its first run.
+- Compressed, the cases lasted until the first failure: one `zlib` one-liner later, every item was
+  fixed in one batch.
+- What holds is a digest of each expected output and a message sealed with the previous case's
+  output. Only an implementation that already gets everything before it right can read the next
+  message.
+
+### Turn-bound items: fast wins from two items, usually for less money
+
+Measured **2026-10-19** on **2.1.303**, on mains power under `caffeinate -i`. Where a cell has two
+values, the first sample looked anomalous and was run once more.
+
+| N | economy s | fast s | wall cut | economy $ | fast $ | premium |
+|---|---|---|---|---|---|---|
+| 2 | 149 | 79 | +47% | 0.138 | 0.079 | −43% |
+| 3 | 203 | 105 | +48% | 0.189 | 0.134 | −29% |
+| 4 | 186 | 114 | +39% | 0.112 | 0.111 | −1% |
+| 6 | 366 · 154 | 134 | +63% · +13% | 0.160 · 0.150 | 0.183 | +14% · +22% |
+| 8 | 201 · 236 | 203 · 150 | −1% · +36% | 0.151 · 0.179 | 0.199 · 0.175 | +32% · −2% |
+
+**The crossover is at or below two items.** Fast was faster in 6 of 7 pairs, by 70 to 100 seconds
+up to N = 4. The one exception, a tie at N = 8, was a sample where one Haiku subagent took 106 seconds
+against 56 on the rerun. Up to N = 4 fast was also *cheaper*: in the economy arm, Sonnet pays for
+every iteration, and in the fast arm Haiku does. From N = 6 the premium is +14% to +32%.
+
+**The economy arm does not grow linearly, because it learns once and applies everywhere.** The
+twelve items share a template and a pool of hidden rules. Every economy session read every stub at
+once, found a rule on one item, and patched all of them in a single `for f in ...; do sed ...` loop.
+So economy took 150 to 240 seconds whatever the width, with one slow sample at 366. Real tasks share
+less, so they would likely favour fast more than this workload does.
+
+**The fast arm has a floor that rises with width.** At N = 2 the floor is about 80 seconds: the
+longest subagent ran about 47 seconds, plus the driver's dispatch and gate. At N = 8 it is 150 to 200
+seconds, because the slowest of eight Haiku subagents is slower than the slowest of two.
+
+### Fully specified items: fast wins only past about a minute of serial work
+
+Re-measured **2026-10-19** on **2.1.303**, run once. The 2.1.302 run (2026-10-18) gave the same
+picture: 17/26, 23/35, 33/31 and 58/32 seconds, economy/fast, at the same widths.
+
+| N | economy s | fast s | wall cut | economy $ | fast $ | premium |
+|---|---|---|---|---|---|---|
+| 2 | 16 | 24 | −50% | 0.088 | 0.075 | −15% |
+| 4 | 21 | 26 | −24% | 0.105 | 0.103 | −2% |
+| 8 | 36 | 31 | +14% | 0.152 | 0.159 | +5% |
+| 12 | 65 | 31 | +52% | 0.206 | 0.206 | 0% |
+
+**The fast arm has a floor of 24 to 31 seconds, whatever the width.** The driver writes N prompts,
+the longest subagent runs 15 to 20 seconds, and the driver runs the gate.
+
+**The economy arm is fast here because it batches too.** Asked to do everything itself, Sonnet reads
+the stubs in one to three calls and writes every module in one or two `Bash` heredocs, without
+opening a test. Each item adds about 3 to 5 seconds of generation, not a round trip. So the crossover
+lies between N = 8, a small win, and N = 12, a 52% cut. On 2.1.302, N = 8 was a wash.
+
+### What decides it
+
+**Duration decides, and width does not.** Across both workloads, fast lost every time the economy
+session took under ~30 seconds. It won in every pair where the economy session took over a minute,
+except the one tie at N = 8. Width alone points the wrong way in both directions. On fully specified
+work, twelve items are needed. Turn-bound work clears the threshold with two.
+
+The estimate has to be of the main session's real serial time, not of items × effort. A planner
+pricing each fully specified item at "a minute" would predict 8 minutes for N = 8 and get 36
+seconds. A main session batches anything it can finish without looking. What it cannot batch is
+waiting: a slow test, a failure to read, a file it has not seen.
+
+**`hooks/lib/spend.py` now agrees with `total_cost_usd`.** On 2.1.302 it overcounted two to four
+times, because it summed the full `usage` on every content-block row of a message. On every cell of
+this run, it matched the `result` event to within $0.001, subagents included.
+
+**Under `-p`, delegations come back asynchronously.** A fast session emits one `result` event per
+subagent that finishes, each with the cumulative cost so far. Only the last one is the session's
+total. A reader that takes the first `result` under-reports.
+
+**The probe's clock was broken, and nothing showed it until the clock read zero.** The previous
+attempts timed each cell by subtracting `time.monotonic()` values taken by two separate `python3 -c`
+processes. On macOS's Python 3.9, that clock counts from the process's own start, so every cell
+measured 0 seconds. The probe now uses `CLOCK_UPTIME_RAW`, which is system-wide and stops while the
+machine sleeps, and it prints wall-clock time beside it. A gap of more than 2 seconds flags the cell
+`DOZE`. None did. A sentinel sampled both clocks every 2 seconds for the whole run, and every 10 s
+test sleep took 10.1 s of wall time. The two invalid runs of 2026-10-18 and 19 were on battery, and
+their 10 s sleeps took 15 to 23 s.
+
+Not measured: subagents on Sonnet or Opus, where the premium will be larger, since each pays its own
+context; widths above 12; Opus as the driver; heterogeneous turn-bound items, which economy could not
+batch the way it batched these; and anything outside a headless `-p` session. Each cell ran at most
+twice, so every crossover here is a range, not a number.
+
+Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/parallel-crossover.sh`
 
 ## Re-running these measurements
 
@@ -1008,11 +1255,14 @@ bash scripts/probes/stop-cap.sh stall 40   # expect ~9 invocations, platform cap
 bash scripts/probes/stop-cap.sh read  12   # expect 6, bound by --max-turns, cap never fires
 bash scripts/probes/stop-cap.sh write 12   # expect 6, same
 bash scripts/probes/transcript-shape.sh <path-to-transcript.jsonl>  # show subagents directory and usage keys present
+bash scripts/probes/transcript-shape.sh --live           # rows vs messages, priced against total_cost_usd (cents)
 bash scripts/probes/model-ids.sh           # which id each routing alias resolves to, and whether it is priced
 bash scripts/probes/statusline.sh install   # then start a session, look at the bottom, and `show`
 bash scripts/probes/pdf-token-cost.sh make # build the test PDF; read it in a session, then `measure <transcript>`
 bash scripts/probes/plugin-output-style.sh # which name selects a plugin's output style
 bash scripts/probes/fanout.sh              # four items in one batch, and a refusal with no gate
+bash scripts/probes/parallel-crossover.sh  # wall time and cost, economy vs fast, at N = 2 4 8 12
+WORKLOAD=turns bash scripts/probes/parallel-crossover.sh 2 3 4 6 8  # the turn-bound case; mains power, caffeinate -i
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook
