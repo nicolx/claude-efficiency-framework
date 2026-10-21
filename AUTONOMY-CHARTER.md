@@ -45,6 +45,8 @@ governs, and by default it is:
 - Summarising progress and waiting. Report at the end, or when a real reason above fires.
 - A choice a declared default in `.efficiency/policy.md` already answers.
 - Uncertainty you can resolve by reading the code.
+- `git commit`, or `git push` without force. A push adds to the remote and rewrites nothing, so it
+  is not the outward-facing action above; a force-push, a deploy or a release still is.
 
 ## Is it done? The question that must always have an answer
 

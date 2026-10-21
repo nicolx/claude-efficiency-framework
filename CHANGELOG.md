@@ -36,6 +36,13 @@ plugin, so nothing the model can edit widens it.
 Measured before it was built: § 21 of `docs/verified-platform-behaviour.md`,
 `scripts/probes/hook-allow.sh`.
 
+### Changed — a plain push is no longer a reason to stop
+
+A hook that no longer asks about `git push` is worth little if the charter still tells the model to
+stop before one. `AUTONOMY-CHARTER.md` now lists `git commit` and `git push` without force among
+what never counts as a reason to stop: a push adds to the remote and rewrites nothing. A
+force-push, a deploy or a release is still the outward-facing action the stop list keeps.
+
 ## [0.21.1] — 2026-10-19
 
 ### Changed — every report says where the work landed
