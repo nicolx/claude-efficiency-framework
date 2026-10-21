@@ -161,9 +161,20 @@ class Project:
                               text=True, env=env, timeout=30)
         return done.returncode, done.stdout
 
-    def invoke_session_start(self):
+    def invoke_session_start(self, inventory=True, path=None):
+        """Invoke SessionStart. A missing inventory is seeded first unless asked not to.
+
+        Without the seed every case would launch the real detection, which asks
+        each installed tool for its version — measured at 53 s on a machine with
+        docling and marker, and it was most of the gate's twenty minutes.
+        """
+        tools = os.path.join(self.dir, ".efficiency", "tools.md")
+        if inventory and not os.path.exists(tools):
+            self.write_tools()
         payload = {"cwd": self.dir, "hook_event_name": "SessionStart"}
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir)
+        if path is not None:
+            env["PATH"] = path
         done = subprocess.run([sys.executable, SESSION_START], input=json.dumps(payload),
                               capture_output=True, text=True, env=env, timeout=60)
         if not done.stdout.strip():
@@ -1993,16 +2004,62 @@ def _():
     return p
 
 
+def wait_for(path, limit=20.0):
+    """Poll for a file a detached process is writing; True once it is there."""
+    end = time.time() + limit
+    while time.time() < end:
+        if os.path.exists(path):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def slow_tool_path(p, name="pandoc", seconds=30):
+    """A PATH holding one fake tool that hangs on any flag, ahead of the system's own.
+
+    The system directories only, so the real detection does not reach the
+    heavy tools of whichever machine runs the test.
+    """
+    fake = os.path.join(p.dir, "fakebin")
+    os.makedirs(fake, exist_ok=True)
+    tool = os.path.join(fake, name)
+    with open(tool, "w") as fh:
+        fh.write("#!/bin/sh\nsleep %d\n" % seconds)
+    os.chmod(tool, 0o755)
+    return fake + os.pathsep + "/usr/bin:/bin"
+
+
 @case("a missing inventory is written by the hook, not left to the adopter")
 def _():
     # It used to be the adopter's job, via a script in the plugin's directory —
     # which a session can neither read nor locate. The hook has neither limit.
+    # Detached since 0.22.1, so it lands after the hook has returned.
     p = Project(run_file=False).write_policy()
-    _c, text = p.invoke_session_start()
-    written = os.path.exists(os.path.join(p.dir, ".efficiency", "tools.md"))
+    path = os.path.join(p.dir, ".efficiency", "tools.md")
+    p.invoke_session_start(inventory=False, path=slow_tool_path(p, seconds=1))
+    written = wait_for(path)
     check("a missing inventory is written by the hook, not left to the adopter",
-          written and "Operational tools" in text,
-          "written=%s announced=%s" % (written, "Operational tools" in text))
+          written and "Operational tools" in open(path).read(),
+          "written=%s" % written)
+    return p
+
+
+@case("session start does not wait for the inventory, and a hanging tool is capped")
+def _():
+    # A tool that hangs on --version made the detection outlast the hook's
+    # 15 s timeout, so the hook was killed and the inventory never written.
+    # Two guards: the hook does not wait, and the detection gives up on a tool.
+    p = Project(run_file=False).write_policy()
+    path = os.path.join(p.dir, ".efficiency", "tools.md")
+    started = time.time()
+    p.invoke_session_start(inventory=False, path=slow_tool_path(p, seconds=30))
+    returned = time.time() - started
+    written = wait_for(path, limit=25)
+    listed = written and "`pandoc`" in open(path).read().split("## Not installed")[0]
+    check("session start does not wait for the inventory, and a hanging tool is capped",
+          returned < 5 and listed,
+          "hook returned after %.1fs; inventory written=%s, hanging tool listed=%s"
+          % (returned, written, listed))
     return p
 
 

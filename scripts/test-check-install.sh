@@ -39,6 +39,9 @@ new_project() {
     git -C "$d" init -q
     mkdir -p "$d/.efficiency"
     printf '.efficiency/run.md\n.efficiency/autopilot.json\n.efficiency/tools.md\n' > "$d/.gitignore"
+    # A fixture inventory, or SessionStart launches the real detection for every
+    # project this script builds — a background job per fixture, for nothing.
+    printf '# Operational tools on this machine\n' > "$d/.efficiency/tools.md"
     printf '%s' "$d"
 }
 

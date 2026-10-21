@@ -15,6 +15,23 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.22.1] — 2026-10-21
+
+### Fixed — the tool inventory was never written on a machine with heavy converters
+
+`scripts/detect-tools.sh` asks every installed tool for its version. `docling`, `marker` and
+`marker_single` load their models first and took about twenty seconds each, so the inventory took
+53 s against the `SessionStart` hook's 15 s timeout: the hook was killed and `.efficiency/tools.md`
+never appeared. Each version query is now capped at 3 s, killing the tool's whole process group,
+and a tool that runs out the cap is still listed as present. The detection now takes about 10 s,
+and the hook launches it detached and never waits, so the session that triggers it sees the
+inventory from the next session on.
+
+The same cost made the gate slow: every throwaway project in `hooks/selftest.py` and
+`scripts/test-check-install.sh` ran the real detection. They now start with a fixture inventory,
+and the one case that tests detection uses a `PATH` with only the system directories and a fake
+tool that hangs. The selftest went from about 20 minutes to 18 seconds.
+
 ## [0.22.0] — 2026-10-21
 
 ### Added — non-destructive Bash no longer asks for permission

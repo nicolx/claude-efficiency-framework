@@ -57,19 +57,57 @@ curl|HTTP from the shell
 unzip|read and extract zip archives
 "
 
+# ── run_capped <seconds> <command...> ────────────────────────────────────────
+# A version flag is not always cheap. `docling`, `marker` and `marker_single`
+# load their models before printing anything and took about twenty seconds each
+# to answer — and the hook that writes this file has fifteen seconds. Measured
+# 2026-10-21: the whole inventory took 53 s on a machine that had them, so the
+# hook was killed every time and the inventory was never written. No coreutils
+# `timeout` on macOS, so perl is the fallback — and it kills the whole process
+# GROUP, not the tool alone: a wrapper script's child that inherits stdout keeps
+# the command substitution waiting after its parent is dead, which is the same
+# hang with an extra step. Exit 124 (timeout) or 142 means the cap fired.
+VERSION_CAP_S=3
+
+run_capped() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$secs" "$@"
+    elif command -v perl >/dev/null 2>&1; then
+        perl -e '
+            my $s = shift;
+            my $pid = fork;
+            exit 127 unless defined $pid;
+            if (!$pid) { setpgrp(0, 0); exec @ARGV or exit 127 }
+            $SIG{ALRM} = sub { kill "KILL", -$pid; exit 142 };
+            alarm $s;
+            waitpid($pid, 0);
+            exit($? >> 8);' "$secs" "$@"
+    else
+        "$@"
+    fi
+}
+
 # ── tool_version <name> ──────────────────────────────────────────────────────
 # Best-effort, and deliberately suspicious of what it gets back. Not every tool
 # answers --version: poppler's pdftotext treats it as a FILENAME and replies
 # "I/O Error: Couldn't open file '--version'", and unzip answers a flag warning.
 # Printing either into the inventory would be noise in the one file whose job is
 # to be believed, so output that looks like a complaint is thrown away and the
-# tool is still listed as present — which is the fact that matters.
+# tool is still listed as present — which is the fact that matters. A tool that
+# runs out the cap is not asked again with another flag: it is slow, not wrong.
 tool_version() {
-    local name="$1" out=""
+    local name="$1" out="" rc
     for flag in --version -version -V -v; do
-        out=$("$name" "$flag" 2>&1 | head -1 | tr -d '\r')
+        out=$(run_capped "$VERSION_CAP_S" "$name" "$flag" </dev/null 2>&1)
+        rc=$?
+        out=$(printf '%s\n' "$out" | head -1 | tr -d '\r')
+        case "$rc" in
+            124|142) out=""; break ;;
+        esac
         case "$out" in
-            ""|*[Ee]rror*|*rror:*|*caution:*|*"No such file"*|*nknown\ option*|            *nvalid\ option*|*[Uu]sage:*|*"not recognized"*)
+            ""|*[Ee]rror*|*rror:*|*caution:*|*"No such file"*|*nknown\ option*|\
+            *nvalid\ option*|*[Uu]sage:*|*"not recognized"*)
                 out="" ;;
             *)  break ;;
         esac
@@ -119,6 +157,6 @@ done <<< "$TOOLS"
     echo "offer to install it once, rather than reimplementing it."
     echo
     printf '%s' "$absent"
-} > "$OUT" || { echo "cannot write $OUT" >&2; exit 2; }
+} > "$OUT.$$" && mv -f "$OUT.$$" "$OUT" || { rm -f "$OUT.$$"; echo "cannot write $OUT" >&2; exit 2; }
 
 echo "wrote $OUT — $count tool(s) available"

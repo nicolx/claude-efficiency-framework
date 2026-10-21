@@ -145,7 +145,14 @@ def refresh_tools(project, plugin_root):
     A hook has neither limitation. It knows CLAUDE_PLUGIN_ROOT and runs outside
     the model's permission surface, so the inventory writes itself and no adopter
     has to remember. Conditional on age because the detection shells out around
-    twenty-five times, which is fast but pointless at every session start.
+    twenty-five times, which is pointless at every session start.
+
+    Launched DETACHED and never waited for. Measured 2026-10-21: on a machine
+    with docling and marker installed the detection took 53 s, against this
+    hook's 15 s timeout, so the hook was killed and the inventory never written.
+    Capped per tool it takes about 11 s, still most of the budget, and a session
+    start should not wait on it at all. The cost is that the session which writes
+    the inventory does not see it; the next one does.
     """
     out = os.path.join(project, TOOLS)
     try:
@@ -156,8 +163,9 @@ def refresh_tools(project, plugin_root):
         script = os.path.join(plugin_root, "scripts", "detect-tools.sh")
         if not os.path.exists(script):
             return
-        subprocess.run(["bash", script, project],
-                       capture_output=True, timeout=120)
+        subprocess.Popen(["bash", script, project], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True, close_fds=True)
     except (OSError, subprocess.SubprocessError):
         return  # never fatal: a missing inventory costs tokens, not the session
 

@@ -136,7 +136,8 @@ So the `SessionStart` hook runs `scripts/detect-tools.sh` itself — nothing for
 remember, and nothing for a session to reach outside its own project — and every session is handed
 the list of operational tools this machine actually has: document conversion, PDF, CSV, media,
 search, platform CLIs, with what each is for. It is rewritten whenever it is missing or more than a
-week old, so deleting it after an install is how you refresh it.
+week old, so deleting it after an install is how you refresh it. The rewrite runs in the background
+and the session start never waits for it, so it reaches the session after the one that triggered it.
 
 **Gitignored, because it describes a machine and not a project.** A colleague's laptop is a
 different laptop, and a shared list describing someone else's is worse than no list.
