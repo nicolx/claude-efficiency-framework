@@ -15,6 +15,15 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+### Added — measured: a Stop hook can ask a second model for a verdict
+
+Repo-internal: `scripts/probes/supervisor-call.sh` and § 22 of `docs/verified-platform-behaviour.md`.
+The groundwork for turning the spend ceiling from a stop into a checkpoint. A nested
+`claude -p --safe-mode` call on Haiku returns a schema-checked verdict in 3 s for under a tenth of a
+cent, re-fires no hooks and leaks nothing into the parent transcript. The platform's own `prompt`
+hook works too, but refuses the `haiku` alias and fails open when it errors, so it cannot carry a
+guard.
+
 ## [0.22.1] — 2026-10-21
 
 ### Fixed — the tool inventory was never written on a machine with heavy converters

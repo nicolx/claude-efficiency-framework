@@ -21,6 +21,7 @@ every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells
 the first version-keyed staleness check asked: unchanged, except a new `effort` key in the `Stop`
 payload. § 20 added: where fanning out starts to save wall time.
 Added: **2026-10-21** · Claude Code **2.1.305** — § 21, a hook granting a permission.
+Added: **2026-10-21** · Claude Code **2.1.306** — § 22, a hook asking a second model for a verdict.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -1274,6 +1275,56 @@ classifier allows nothing a deny list would plausibly hold, so the gap is narrow
 
 Verified: 2026-10-21 · Claude Code 2.1.305 · `scripts/probes/hook-allow.sh`
 
+## 22. A Stop hook can ask a second model for a verdict — and only one way keeps the verdict ours
+
+Measured **2026-10-21** on **2.1.306** with `scripts/probes/supervisor-call.sh`, one headless Haiku
+session per mode in a fresh `mktemp` directory, settings passed with `--settings`. The question is
+whether the spend ceiling can become a checkpoint: at the ceiling, a cheaper model judges whether
+the work is converging, and the run continues or stops on that verdict.
+
+**`nested` — a command `Stop` hook runs `claude -p` itself.** The call was
+`claude -p … --safe-mode --setting-sources project,local --model haiku --tools ""
+--no-session-persistence --output-format json --json-schema <verdict schema> --max-budget-usd 0.05`.
+
+| Question | Measured |
+|---|---|
+| Does it run from inside the hook? | **yes**, exit 0, under the parent's `CLAUDECODE=1` environment |
+| How long? | **2.9–3.3 s** for a one-paragraph verdict, over two runs |
+| What did it cost? | **$0.0002–$0.0007**, reported as `total_cost_usd` in its own JSON |
+| Is the verdict machine-readable? | **yes**: `structured_output` held `{"verdict": "converging", "why": …}` against the schema |
+| Did it re-fire the parent's hooks? | **no**: the `SessionStart` marker counted 1, the parent's own |
+| Did its spend reach the parent transcript? | **no**: one transcript in the project, holding only the parent's turn |
+
+**`prompt` — the platform's own `type: "prompt"` `Stop` hook.**
+
+| Question | Measured |
+|---|---|
+| `"model": "haiku"` | **refused**: `unrecognized_model`, reported as a *non-blocking* hook error, and the turn ended normally |
+| `"model": "claude-haiku-5-5"` | **works**: it refused the first stop, its reason reached the model as `Stop hook feedback`, the model complied, the second stop was allowed |
+
+What the design takes from it:
+
+- **The supervisor is a nested call, not a prompt hook.** The prompt hook is the platform's
+  judgement, not ours: its verdict never passes through `autopilot-stop.py`, so it cannot be
+  bounded by the run's counters (rule 3), and its own failure **fails open** — a model id it does
+  not know simply lets the turn end, the opposite of rule 2's fail-closed guard. The nested call
+  hands the verdict back to the hook as data, and the hook decides what it is worth.
+- **Its cost is invisible to `spend.py`, so the hook must add it.** `--no-session-persistence`
+  leaves no transcript, and none would be the parent's anyway. `total_cost_usd` from its JSON is
+  the figure to charge to the run, and a missing one is a blind guard.
+- **Aliases are not portable across call sites.** `--model haiku` resolves; the prompt hook's
+  `model` field does not. § 16 again, in a new place.
+- **The latency fits the `Stop` hook, not `PreToolUse`.** 3 s against the Stop hook's 960 s
+  timeout is nothing; against `autopilot-pretool.py`'s 20 s, on every tool call, it is not. The
+  verdict is taken at the boundary and the in-turn guard only reads it.
+
+Not measured: whether `--safe-mode` also keeps an *installed plugin's* hooks out of the nested
+session — the marker was a `--settings` hook. The help text says it does; a supervisor should still
+set an environment flag its own hooks no-op on, rather than rest the recursion question on one line
+of help.
+
+Verified: 2026-10-21 · Claude Code 2.1.306 · `scripts/probes/supervisor-call.sh`
+
 ## Re-running these measurements
 
 Every numbered section ends with a `Verified:` line — date, Claude Code version, and the probe that
@@ -1296,6 +1347,8 @@ bash scripts/probes/fanout.sh              # four items in one batch, and a refu
 bash scripts/probes/parallel-crossover.sh  # wall time and cost, economy vs fast, at N = 2 4 8 12
 WORKLOAD=turns bash scripts/probes/parallel-crossover.sh 2 3 4 6 8  # the turn-bound case; mains power, caffeinate -i
 bash scripts/probes/hook-allow.sh          # a hook's allow is honoured, a deny rule still wins
+bash scripts/probes/supervisor-call.sh nested  # a Stop hook's nested Haiku verdict: cost, latency, no leak
+bash scripts/probes/supervisor-call.sh prompt  # the platform's prompt hook: alias refused, full id blocks
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook
