@@ -109,6 +109,10 @@ the base scaled by tier — never the base alone as if it were the ceiling:
 > Autopilot armed: 3 tasks, economy, $5.00 base, $20.00 for the critical task,
 > 40 continuations. It will stop on its own and tell you why.
 
+When the policy sets `budget.supervisor` (the shipped default), those figures
+are checkpoints, not stops: say so in the same line — "checkpoints judged by
+sonnet" — so nobody reads $20.00 as the most the run can spend.
+
 In fast mode, name the waves and the widest one too, and give the ceiling as the
 widest wave's figure, the sum of its tasks' scaled ceilings: it is the extra
 spend the developer did not see in a plan.

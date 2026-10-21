@@ -22,6 +22,7 @@ the first version-keyed staleness check asked: unchanged, except a new `effort` 
 payload. § 20 added: where fanning out starts to save wall time.
 Added: **2026-10-21** · Claude Code **2.1.305** — § 21, a hook granting a permission.
 Added: **2026-10-21** · Claude Code **2.1.306** — § 22, a hook asking a second model for a verdict.
+Added: **2026-10-21** · Claude Code **2.1.306** — § 23, checkpoints end to end.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -1314,9 +1315,9 @@ What the design takes from it:
   the figure to charge to the run, and a missing one is a blind guard.
 - **Aliases are not portable across call sites.** `--model haiku` resolves; the prompt hook's
   `model` field does not. § 16 again, in a new place.
-- **The latency fits the `Stop` hook, not `PreToolUse`.** 3 s against the Stop hook's 960 s
-  timeout is nothing; against `autopilot-pretool.py`'s 20 s, on every tool call, it is not. The
-  verdict is taken at the boundary and the in-turn guard only reads it.
+- **The latency fits the `Stop` hook, not `PreToolUse`.** 3 s against the Stop hook's
+  timeout (1200 s since 0.23.0) is nothing; against `autopilot-pretool.py`'s 20 s, on every
+  tool call, it is not. The verdict is taken at the boundary and the in-turn guard only reads it.
 
 Not measured: whether `--safe-mode` also keeps an *installed plugin's* hooks out of the nested
 session — the marker was a `--settings` hook. The help text says it does; a supervisor should still
@@ -1324,6 +1325,41 @@ set an environment flag its own hooks no-op on, rather than rest the recursion q
 of help.
 
 Verified: 2026-10-21 · Claude Code 2.1.306 · `scripts/probes/supervisor-call.sh`
+
+## 23. A checkpoint lets a long task through and stops an impossible one
+
+Measured **2026-10-21** on **2.1.306** with `scripts/probes/supervisor-checkpoint.sh`: a real
+headless Haiku session in a fresh git repository, under the **shipped** `Stop` and `PreToolUse`
+hooks, with `budget.supervisor: haiku` and a per-task ceiling of $0.02 — a few turns' worth, so a
+checkpoint is reached in minutes.
+
+| Mode | The run | Checkpoints | Ended |
+|---|---|---|---|
+| `converging` | one task, twenty files, one file per turn: about four times its ceiling | 3 × no task closing, 1 × spend ceiling — all **converging**, each naming the files so far | **DONE**, 20 of 20 |
+| `impossible` | read a key from a file that does not exist | 1 × no task closing — **looping**: "re-reading the same missing file" | **BLOCKED** at block 6 |
+
+Before 0.23.0 the first run stops at its ceiling with the work three-quarters done — the case this
+was built for. Supervisor spend: $0.0022 for four verdicts, $0.0006 for one. A direct call to the
+shipped default, Sonnet, with the prompt on stdin: 4.4 s, $0.007.
+
+Three defects the probe found that the selftest could not, all fixed before this was written:
+
+- **A run that closed every task inside one turn was judged — and stopped as "looping"**, for having
+  nothing left to do. A checkpoint with no open task now grants without asking.
+- **The supervisor saw no tool calls.** Progress noted at the top of the invocation moved the start
+  of the window it reads calls from past the very turn it was judging. Calls are now read from the
+  previous checkpoint onwards.
+- **It did not know what its answer did.** Its reasons said the developer would have to raise the
+  budget. The prompt now says that `converging` grants another tranche.
+
+Two limits of the measurement. The ceiling is a few cents against real ones of dollars, so the idle
+checkpoint (half a window without progress) reacts to a single empty Haiku turn here; at a real
+ceiling it is a dozen. And a stall that makes no tool call at all is still overridden by the
+platform at its ninth block (§ 3) if a first checkpoint called it converging — the second, at
+block 11, would have stopped it, but never runs. A session that calls no tool for nine turns is not
+the case a supervisor is for.
+
+Verified: 2026-10-21 · Claude Code 2.1.306 · `scripts/probes/supervisor-checkpoint.sh`
 
 ## Re-running these measurements
 
@@ -1349,6 +1385,8 @@ WORKLOAD=turns bash scripts/probes/parallel-crossover.sh 2 3 4 6 8  # the turn-b
 bash scripts/probes/hook-allow.sh          # a hook's allow is honoured, a deny rule still wins
 bash scripts/probes/supervisor-call.sh nested  # a Stop hook's nested Haiku verdict: cost, latency, no leak
 bash scripts/probes/supervisor-call.sh prompt  # the platform's prompt hook: alias refused, full id blocks
+bash scripts/probes/supervisor-checkpoint.sh converging  # a long task goes DONE through checkpoints
+bash scripts/probes/supervisor-checkpoint.sh impossible  # an impossible one is stopped at the first
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook

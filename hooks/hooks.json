@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-stop.py\"",
-            "timeout": 960,
+            "timeout": 1200,
             "statusMessage": "Checking the run before ending the turn..."
           }
         ]

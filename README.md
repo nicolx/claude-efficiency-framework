@@ -437,6 +437,33 @@ this order:
    rather than halving it. Ours must fire first, because the first five write a reason you can read
    and this one does not.
 
+### Checkpoints, not stops
+
+Guards 2, 4 and 5 count — dollars, continuations, blocks without a task closing — and a count cannot
+tell a task that is converging from one that loops. Stopped at the ceiling, a run a step short of
+done is handed back to you exactly like one going nowhere. So with `budget.supervisor` set, which
+the shipped policy does (`sonnet`), each of them holds a **checkpoint** instead: the hook asks a
+second model whether the work is converging. If it is, the guard grants one more tranche of the same
+size and the run goes on; if not, the run stops with the supervisor's reason. A fourth checkpoint
+fires on **spend without progress** — half a window spent since a task last closed or the working
+tree last changed — so a run going nowhere is stopped halfway to its ceiling rather than at it.
+
+There is no cap on tranches, deliberately: a run that keeps producing keeps going. What bounds it:
+
+- **The supervisor reads the work, not the worker.** Task statements, the cumulative `git diff`
+  since the run started, the tool calls made — never the agent's prose. The call is made by the hook
+  and its answer comes back as data; the model being judged never sees the question.
+- **Two checkpoints in a row with no progress between them stop the run without asking.** Progress
+  is measured by the hook: a task closing, or the working tree reaching a state it has never been
+  in — never *been* in, so an edit undone and redone is not progress twice.
+- **Every failure of the supervisor stops the run** — not installed, timed out, no verdict, no cost.
+  Its cost is charged to the window, because no transcript holds it.
+
+What still stops a run outright: the gate red after its retries, spend that cannot be measured, and
+the supervisor's own failures. `supervisor: off` restores the hard stops everywhere. Measured end to
+end in `docs/verified-platform-behaviour.md` § 23: a task four times longer than its ceiling went to
+DONE through four checkpoints, and an impossible one was stopped at the first.
+
 If spend cannot be measured, the run **stops**. An unmeasured ceiling is not a ceiling.
 
 **Counters and ceilings live in a file no skill mentions** — `.efficiency/autopilot.json` —

@@ -147,7 +147,8 @@ approved list, and never summarise progress and wait. The list was approved:
 finish it.
 
 When a guard stops the run — the spend ceiling, the retry limit, the
-continuation budget, the stall guard — the hook writes `blocked_reason` and the
+continuation budget, the stall guard, or a supervisor checkpoint that judged the
+work not converging — the hook writes `blocked_reason` and the
 turn ends. Report that plainly, with the number that caused it, and say what you
 would do next. Do not try to clear the block: you cannot, and attempting it
 wastes a turn.

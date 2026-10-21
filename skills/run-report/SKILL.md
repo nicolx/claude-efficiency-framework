@@ -36,6 +36,13 @@ keys into the run file every time it checks the ceiling:
 - `task_spend_micro_usd` — the total since the current task opened;
 - `task_spend_by_model` — the same split per model, as `model=micro_usd` pairs.
 
+With a supervisor configured, three more: `supervisor_checkpoints` (how many
+verdicts the run took), `supervisor_last` (the latest, with its reason) and
+`supervisor_spend_micro_usd` (what they cost, which the transcript does not
+hold — add it to the total). Report every checkpoint that granted a tranche: it
+is spend past the ceiling the developer approved, and the reason is theirs to
+agree with.
+
 A third key appears only when something went wrong with the measurement:
 
 - `task_spend_unpriced_models` — ids the cost table did not know, which were

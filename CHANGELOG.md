@@ -15,6 +15,33 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.23.0] — 2026-10-21
+
+### Changed — the ceilings are checkpoints: a supervisor decides, not a count
+
+A ceiling stopped a task that was converging exactly as it stopped one that looped, so a run a step
+short of done was handed back like one going nowhere. With `budget.supervisor` set — the shipped
+policy sets `sonnet`; a policy without the key gets it too — the spend ceiling, the continuation
+budget and the stall guard each hold a **checkpoint** instead: `hooks/lib/supervisor.py` asks a
+second model, from inside the `Stop` hook, whether the work is converging. Converging grants one
+more tranche of the same size, with no limit on how many; looping or diverging stops the run with
+the supervisor's reason. A new checkpoint fires on **spend without progress** — half a window
+spent since a task closed or the working tree last reached a new state — and stops a run going
+nowhere halfway to its ceiling.
+
+What bounds a run without a cap: the supervisor reads task statements, the cumulative `git diff`
+and the tool calls, never the agent's prose; two checkpoints in a row with no measured progress
+between them stop without asking; every supervisor failure stops the run; its cost is charged to
+the window, because no transcript holds it. The model is captured with the plan, so a policy edit
+cannot swap it mid-run. `supervisor: off`, or a project with no policy, keeps the hard stops.
+Run files gain `supervisor_checkpoints`, `supervisor_last` and `supervisor_spend_micro_usd`.
+
+The `Stop` hook's timeout goes from 960 s to 1200 s: the gate's 900 s and a verdict's 180 s
+together no longer fit the old one. Seventeen selftest cases, five mutation-tested. Measured end to
+end in § 23 of `docs/verified-platform-behaviour.md` with `scripts/probes/supervisor-checkpoint.sh`:
+a task four times its ceiling went to DONE through four checkpoints, an impossible one was stopped
+at the first, and the probe found three defects the selftest could not.
+
 ### Added — measured: a Stop hook can ask a second model for a verdict
 
 Repo-internal: `scripts/probes/supervisor-call.sh` and § 22 of `docs/verified-platform-behaviour.md`.

@@ -258,6 +258,11 @@ def ceiling_refusal(payload, project):
             return None   # blind again, and again the Stop hook is the one that stops
         write_cache(cache_path, window, size, spent)
 
+    # The supervisor's verdicts are spend the transcript does not hold (§ 22);
+    # the Stop hook records what it was charged in this window.
+    if not fresh:
+        spent += priv.get_int("supervisor_window_micro", 0)
+
     if spent < spend_max:
         return None
 
@@ -265,9 +270,10 @@ def ceiling_refusal(payload, project):
     return (
         "The spend ceiling for %s is reached: %s of %s, measured from this session's "
         "transcript. Stop calling tools now. Say what you completed and what is left, "
-        "and end your turn — the autopilot will stop the run at the turn boundary and "
-        "hand it to the developer. Raising the ceiling is not yours to do: it is set in "
-        "the approved plan, and re-planning is how it changes."
+        "and end your turn — at the turn boundary the autopilot either hands the run to "
+        "the developer or, if a supervisor is configured, has it judge the work and grant "
+        "more. Raising the ceiling is not yours to do: it is set in the approved plan, "
+        "and only the hook extends it."
         % (task, stop.usd(spent), stop.usd(spend_max)))
 
 
@@ -297,6 +303,8 @@ def auto_allow_reason(payload, project):
 
 
 def main():
+    if os.environ.get("EFFICIENCY_SUPERVISOR"):
+        permit()   # the supervisor's own session, which has no tools to guard
     try:
         payload = json.load(sys.stdin)
     except ValueError:

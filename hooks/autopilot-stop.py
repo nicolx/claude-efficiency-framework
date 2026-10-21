@@ -38,6 +38,10 @@ activation pattern Claude Code documents for conditional hooks.
 The first four write a reason a human can read. The platform's does not — which
 is why ours must fire first.
 
+With `budget.supervisor` captured, the count-based guards — spend, continuations,
+blocks without a task closing, and spend without progress — hold a checkpoint
+instead of stopping: see "checkpoints" below and hooks/lib/supervisor.py.
+
 ── Rules it obeys ───────────────────────────────────────────────────────────
 
 NEVER FATAL FOR ITS OWN DEFECTS. A broken hook must not stand between a
@@ -132,6 +136,24 @@ DEFAULT_TIER_MULTIPLIER = {"mechanical": 0.5, "standard": 1.0,
 # expensive tier do real work; anything above it is more plausibly a mistake
 # than a decision, and a decision that large belongs in `task_usd` itself.
 MAX_TIER_MULTIPLIER = 10.0
+
+# The supervisor (hooks/lib/supervisor.py). A policy without `budget.supervisor`
+# gets this model; `off` restores the hard stops. A project with no policy at
+# all has not adopted the framework's defaults and keeps the hard stops too.
+DEFAULT_SUPERVISOR = "sonnet"
+SUPERVISOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\[\]-]*$")
+
+# The idle checkpoint: this share of the window's ceiling spent since the last
+# sign of progress — a task closing, or the working tree reaching a state it was
+# never in before — and the supervisor is asked early, before the ceiling.
+IDLE_PCT = 50
+
+# Checkpoints in a row with no progress between them, after which the run stops
+# without asking. The supervisor judges the work; with no work to judge there
+# is nothing for it to see, and a run that only talks is not a run that is
+# nearly done. One barren checkpoint is allowed, because reading and diagnosis
+# change nothing on disk and are still work.
+BARREN_STOP = 2
 
 
 # ── talking to Claude Code ───────────────────────────────────────────────────
@@ -295,7 +317,12 @@ class Private:
             "mode", "task_spend_max", "deps", "files", "max_agents", "wave",
             "wave_history",
             # the per-task ceiling's tier scaling, captured with the plan
-            "order", "tiers", "multipliers")
+            "order", "tiers", "multipliers",
+            # the supervisor — see "checkpoints" below
+            "supervisor", "base_head", "seen_states", "progress_open_sig",
+            "progress_at", "progress_since_checkpoint", "barren_checkpoints",
+            "checkpoints", "supervisor_window_micro", "supervisor_spend_micro",
+            "continuations_tranche")
 
     def __init__(self, path):
         self.path = path
@@ -536,6 +563,36 @@ def policy_tier_multipliers(project):
             return flat
         return dict((t, sane_multiplier(found[t]) if t in found else 1.0) for t in flat)
     return dict(DEFAULT_TIER_MULTIPLIER)
+
+
+def policy_supervisor(project):
+    """`budget.supervisor`: the model that holds the checkpoints, or "" for off.
+
+    No policy file reads as off — the hard stops this hook has always had. A
+    policy that does not name the key predates it and gets DEFAULT_SUPERVISOR.
+    A value that does not look like a model name is read as off, not as the
+    default: a typo must not be what decides to keep spending.
+    """
+    front = policy_front(project)
+    if front is None:
+        return ""
+    try:
+        start = next(i for i, l in enumerate(front) if re.match(r"budget:\s*(#.*)?$", l))
+    except StopIteration:
+        return DEFAULT_SUPERVISOR
+    for line in front[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[:1].isspace():
+            break
+        key, _, value = line.strip().partition(":")
+        if key.strip() != "supervisor":
+            continue
+        value = unquote(value.split("#", 1)[0].strip())
+        if value.lower() in ("", "off", "false", "no", "none"):
+            return ""
+        return value if SUPERVISOR_RE.match(value) else ""
+    return DEFAULT_SUPERVISOR
 
 
 def task_tiers(run):
@@ -807,9 +864,175 @@ def iso_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# ── checkpoints ──────────────────────────────────────────────────────────────
+#
+# Four guards used to stop a run on a count: the spend ceiling, the
+# continuations ceiling, and the stall guard — plus a fourth, new with them,
+# that fires on spend since the last sign of progress. With a supervisor
+# captured, each of them holds a checkpoint instead: a second model reads the
+# work and says whether it is converging. If it is, the guard grants one more
+# tranche of the same size and the run goes on; if not, the run stops with the
+# supervisor's reason. There is no cap on tranches, deliberately — a run that
+# keeps producing keeps going — so what bounds a run is the verdict, and two
+# conditions the verdict cannot override:
+#
+#   * BARREN_STOP checkpoints in a row with no progress between them stop the
+#     run without asking. Progress is measured here, not reported: a task
+#     closing, or the working tree reaching a state it has never been in.
+#   * Every failure of the supervisor — not on PATH, timed out, no verdict, no
+#     cost — stops the run. A checkpoint nobody answered is not a checkpoint.
+#
+# What still stops a run outright, by design: the gate red after its retries,
+# spend that cannot be measured, and the supervisor's own failures.
+
+_SUPERVISOR = None
+_GRANTED = None     # one verdict per invocation: several guards may ask at once
+_NOTES = []         # what the checkpoints decided, for the block reason
+
+
+def load_supervisor():
+    global _SUPERVISOR
+    if _SUPERVISOR is None:
+        sys.path.insert(0, os.path.join(HERE, "lib"))
+        import supervisor
+        _SUPERVISOR = supervisor
+    return _SUPERVISOR
+
+
+def note_progress(priv, project, open_sig):
+    """Record whether the work moved since the last invocation.
+
+    A task closing counts, and so does the working tree reaching a state never
+    seen in this run — never seen, not merely different, so an edit undone and
+    redone is not progress twice. Only with a supervisor captured: without one,
+    nothing reads it, and the git calls are not free.
+    """
+    if not priv.get("supervisor"):
+        return
+    progressed = False
+    if priv.get("progress_open_sig") != open_sig:
+        priv.set("progress_open_sig", open_sig)
+        progressed = True
+    sig = load_supervisor().state_signature(project)
+    if sig:
+        seen = priv.get("seen_states")
+        seen = [x for x in seen if isinstance(x, str)] if isinstance(seen, list) else []
+        if sig not in seen:
+            seen.append(sig)
+            priv.set("seen_states", seen[-500:])
+            progressed = True
+    if progressed:
+        priv.set("progress_at", iso_now())
+        priv.set("progress_since_checkpoint", True)
+    priv.save()
+
+
+def checkpoint_stop(priv, run, kind, reason):
+    priv.block_run(run, "checkpoint (%s): %s" % (kind, reason))
+    allow_with_note("efficiency autopilot: stopped at a checkpoint (%s) — %s" % (kind, reason))
+
+
+def checkpoint(priv, run, project, payload, kind, situation):
+    """Ask the supervisor whether the run may go on. Returns only if it may.
+
+    None when no supervisor was captured: the caller stops the run exactly as
+    it always has. Otherwise it either returns the verdict, and the caller
+    grants its tranche, or it stops the run and does not return.
+    """
+    global _GRANTED
+    model = priv.get("supervisor")
+    if not model:
+        return None
+    if _GRANTED is not None:
+        _NOTES.append("%s: covered by the verdict above" % kind)
+        return _GRANTED
+    if not run.open_tasks():
+        # Every task is closed: the turn is ending, nothing further is asked
+        # for, and there is no work left for a verdict to be about. Found by
+        # scripts/probes/supervisor-checkpoint.sh — a run that finished all its
+        # tasks inside its first turn was stopped as "looping" for having
+        # nothing left to do.
+        _GRANTED = {"verdict": "converging", "why": "no task is open"}
+        return _GRANTED
+
+    progressed = bool(priv.get("progress_since_checkpoint"))
+    barren = 0 if progressed else priv.get_int("barren_checkpoints", 0) + 1
+    priv.set("progress_since_checkpoint", False)
+    priv.set("barren_checkpoints", barren)
+    priv.save()
+    history = priv.get("checkpoints")
+    history = [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
+
+    if barren >= BARREN_STOP:
+        checkpoint_stop(priv, run, kind,
+                        "%s. %d checkpoints in a row with no task closed and no new change "
+                        "in the working tree, so there was no work for the supervisor to "
+                        "judge. It needs a human to look." % (situation, barren))
+
+    lib = load_supervisor()
+    tasks = run.tasks()
+    question = lib.prompt(
+        kind, situation,
+        [t for mark, t in tasks if mark != "x"], [t for mark, t in tasks if mark == "x"],
+        lib.diff_evidence(project, priv.get("base_head") or ""),
+        # Since the previous checkpoint, not since the last progress: progress
+        # noted at the top of this very invocation would otherwise move the
+        # start past the turn being judged, and the supervisor would see none
+        # of the calls it is asked about. Measured in the live probe.
+        lib.tool_calls(payload.get("transcript_path"),
+                       history[-1].get("at") if history else priv.get("task_started_at")),
+        [{"kind": h.get("kind"), "verdict": h.get("verdict"), "why": h.get("why")}
+         for h in history[-10:]])
+    answer = lib.ask(model, question)
+
+    cost = answer.get("cost_micro")
+    if cost is None:
+        checkpoint_stop(priv, run, kind,
+                        "%s. The supervisor (%s) gave no cost the run could be charged "
+                        "(%s), and a checkpoint whose spend cannot be measured is a blind "
+                        "guard." % (situation, model, answer.get("error") or "no reply"))
+    priv.set("supervisor_window_micro", priv.get_int("supervisor_window_micro", 0) + cost)
+    priv.set("supervisor_spend_micro", priv.get_int("supervisor_spend_micro", 0) + cost)
+    run.set("supervisor_spend_micro_usd", priv.get_int("supervisor_spend_micro", 0))
+
+    if answer.get("error"):
+        priv.save()
+        checkpoint_stop(priv, run, kind, "%s. The supervisor (%s) %s, so nobody judged the "
+                                         "work." % (situation, model, answer["error"]))
+
+    history.append({"at": iso_now(), "kind": kind, "verdict": answer["verdict"],
+                    "why": answer["why"], "cost_micro": cost, "progressed": progressed})
+    priv.set("checkpoints", history[-100:])
+    priv.save()
+    run.set("supervisor_checkpoints", len(history))
+    run.set("supervisor_last", "%s: %s — %s" % (kind, answer["verdict"], answer["why"]))
+    run.save()
+
+    if answer["verdict"] != "converging":
+        checkpoint_stop(priv, run, kind, "%s. The supervisor judged the run %s: %s"
+                                         % (situation, answer["verdict"], answer["why"]))
+    _GRANTED = answer
+    _NOTES.append("%s: converging — %s" % (kind, answer["why"]))
+    return answer
+
+
+def window_tranche(priv, run):
+    """One more window's worth of spend: the ceiling the open window started with."""
+    per_task = priv.get_int("task_spend_max", priv.get_int("spend_max", 0))
+    if priv.get("mode") == "fast":
+        wave = priv.get("wave")
+        wave = [str(i) for i in wave] if isinstance(wave, list) else []
+        return window_ceiling(per_task, "fast", wave, priv.data)
+    return window_ceiling(per_task, "economy", first_open(run, priv.data), priv.data)
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    # The supervisor's own session. It runs in an empty directory and would find
+    # no run here anyway; this says so without looking.
+    if os.environ.get("EFFICIENCY_SUPERVISOR"):
+        allow_silently()
     try:
         payload = json.load(sys.stdin)
     except ValueError:
@@ -903,6 +1126,25 @@ def main():
             "blocked": False,
             "blocked_reason": "",
         }
+        # The supervisor is captured with the ceilings, like everything else a
+        # checkpoint's outcome depends on: switching it off mid-run only makes
+        # the run stricter, but pointing it at a weaker model would not.
+        model = policy_supervisor(project)
+        if model:
+            lib = load_supervisor()
+            priv.data.update({
+                "supervisor": model,
+                "base_head": lib.head(project),
+                "seen_states": [s for s in [lib.state_signature(project)] if s],
+                "progress_open_sig": open_signature(run.open_tasks()),
+                "progress_at": priv.data["task_started_at"],
+                "progress_since_checkpoint": False,
+                "barren_checkpoints": 0,
+                "checkpoints": [],
+                "supervisor_window_micro": 0,
+                "supervisor_spend_micro": 0,
+                "continuations_tranche": priv.data["continuations_max"],
+            })
         priv.save()
 
     # ── guard 0: the run file must actually declare its ceilings ────────────
@@ -1017,6 +1259,7 @@ def main():
                     priv.get_int("task_spend_max", priv.get_int("spend_max", 0)),
                     "fast", wave, priv.data))
                 priv.set("task_started_at", iso_now())
+                priv.set("supervisor_window_micro", 0)
                 priv.save()
         spent_on = "the wave %s" % (", ".join(wave) or "(no task ready)")
     elif priv.get("task_key") != open_sig:
@@ -1029,7 +1272,10 @@ def main():
                                              first_open(run, priv.data), priv.data))
         priv.set("task_key", open_sig)
         priv.set("task_started_at", iso_now())
+        priv.set("supervisor_window_micro", 0)
         priv.save()
+
+    note_progress(priv, project, open_sig)
 
     # ── guard 1: spend on the current task ───────────────────────────────────
     spend_max = priv.get_int("spend_max", 0)
@@ -1062,22 +1308,61 @@ def main():
             if unpriced:
                 run.set("task_spend_unpriced_models", ", ".join(unpriced))
         run.save()
+        # What the supervisor cost in this window is spend too, and spend.py
+        # cannot see it (§ 22): the hook adds what it was charged.
+        spent += priv.get_int("supervisor_window_micro", 0)
         if spent >= spend_max:
-            priv.block_run(run, "%s reached its spend ceiling (%s of %s) without closing. "
-                                "It needs a human opinion before more is spent on it."
-                                % (spent_on, usd(spent), usd(spend_max)))
-            allow_with_note(
-                "efficiency autopilot: stopped — %s spent %s against a ceiling of %s "
-                "without closing. Your call on what to do with it."
-                % (spent_on, usd(spent), usd(spend_max)))
+            situation = ("%s reached its spend ceiling (%s of %s) without closing"
+                         % (spent_on, usd(spent), usd(spend_max)))
+            if checkpoint(priv, run, project, payload, "spend ceiling", situation) is None:
+                priv.block_run(run, "%s. It needs a human opinion before more is spent on it."
+                                    % situation)
+                allow_with_note(
+                    "efficiency autopilot: stopped — %s spent %s against a ceiling of %s "
+                    "without closing. Your call on what to do with it."
+                    % (spent_on, usd(spent), usd(spend_max)))
+            # One more tranche, counted from what is already spent: a single
+            # long turn can overshoot the ceiling, and the next window must not
+            # start in debt.
+            spend_max = spent + window_tranche(priv, run)
+            priv.set("spend_max", spend_max)
+            priv.save()
+        elif priv.get("supervisor"):
+            # ── the idle checkpoint ───────────────────────────────────────────
+            # Spend since the last sign of progress, held against a share of
+            # the window. It is the one that saves money: a run going nowhere
+            # is stopped halfway to the ceiling instead of at it.
+            since = priv.get("progress_at") or started
+            idle = spent if since <= started else measure_spend(
+                payload.get("transcript_path"), since)
+            if idle is None:
+                priv.block_run(run, "spend since the last progress could not be measured, so "
+                                    "the idle checkpoint was not enforced. The run stopped "
+                                    "instead of continuing blind.")
+                allow_with_note("efficiency autopilot: stopped — spend could not be measured "
+                                "for %s." % spent_on)
+            threshold = window_tranche(priv, run) * IDLE_PCT // 100
+            if threshold > 0 and idle >= threshold:
+                checkpoint(priv, run, project, payload, "spend without progress",
+                           "%s spent %s since the last task closed or the working tree last "
+                           "changed, %d%% of its window" % (spent_on, usd(idle), IDLE_PCT))
+                priv.set("progress_at", iso_now())
+                priv.save()
 
     # ── guard 2: continuations for the whole run ─────────────────────────────
     used = priv.get_int("continuations_used", 0)
     used_max = priv.get_int("continuations_max", 0)
     if used_max > 0 and used >= used_max:
-        priv.block_run(run, "the run used all %d automatic continuations. Still open: %s."
-                            % (used_max, ", ".join(run.open_tasks()) or "nothing"))
-        allow_with_note("efficiency autopilot: stopped — %d continuations used." % used_max)
+        situation = ("the run used all %d automatic continuations. Still open: %s"
+                     % (used_max, ", ".join(run.open_tasks()) or "nothing"))
+        if checkpoint(priv, run, project, payload, "continuations", situation) is None:
+            priv.block_run(run, situation + ".")
+            allow_with_note("efficiency autopilot: stopped — %d continuations used." % used_max)
+        used_max = used + max(1, priv.get_int("continuations_tranche", used_max))
+        priv.set("continuations_max", used_max)
+        priv.save()
+        run.set("continuations_max", used_max)
+        run.save()
 
     # ── guard 3: the gate ────────────────────────────────────────────────────
     gate = run.get("gate")
@@ -1151,13 +1436,19 @@ def main():
     run.set("same_task_blocks", same)
 
     if same >= STALL_STOP:
-        priv.block_run(run,
-                 "the run stopped advancing: %d continuation(s) in a row closed no "
-                 "task, and %d task(s) are still open (currently %s). Either the work "
-                 "is blocked on something undeclared, or finished work is not being "
-                 "closed. Both need a human to look." % (same, open_now, task))
-        allow_with_note("efficiency autopilot: stopped — %d continuation(s) without a "
-                        "task closing, on %s." % (same, task))
+        situation = ("%d continuation(s) in a row closed no task, and %d task(s) are still "
+                     "open (currently %s)" % (same, open_now, task))
+        if checkpoint(priv, run, project, payload, "no task closing", situation) is None:
+            priv.block_run(run,
+                     "the run stopped advancing: %s. Either the work is blocked on something "
+                     "undeclared, or finished work is not being closed. Both need a human to "
+                     "look." % situation)
+            allow_with_note("efficiency autopilot: stopped — %d continuation(s) without a "
+                            "task closing, on %s." % (same, task))
+        same = 0
+        priv.set("same_task_blocks", 0)
+        priv.save()
+        run.set("same_task_blocks", 0)
 
     priv.set("continuations_used", used + 1)
     priv.save()
@@ -1189,6 +1480,11 @@ def main():
                    "say why instead of trying again; this run stops on its own after %d. "
                    "Moving `current_task` is not progress and does not reset this.\n"
                    % (same, open_now, task, STALL_STOP))
+        if priv.get("supervisor"):
+            warning = warning.replace(
+                "this run stops on its own after %d" % STALL_STOP,
+                "after %d a supervisor reads the work and decides whether the run goes on"
+                % STALL_STOP)
 
     # A ceiling someone deliberately set to zero is honoured, but not hidden. It
     # is a real decision with a real consequence — the run is unbounded in that
@@ -1204,8 +1500,15 @@ def main():
         note = ("\n\nRunning with %s — set in the run file as 0. Nothing will stop this run "
                 "on that count.\n" % " and ".join(unbounded))
 
-    block("%d task(s) still open, gate green. Current task: %s.\n\n%s%s%s\nNext open task: %s"
-          % (open_now, task, steps, warning, note, remaining[0]))
+    # A checkpoint that let the run go on is said, not hidden: the developer
+    # reading the transcript later should see every tranche and why.
+    granted = ""
+    if _NOTES:
+        granted = ("\n\nSupervisor checkpoint — the run continues. %s\n"
+                   % " · ".join(_NOTES))
+
+    block("%d task(s) still open, gate green. Current task: %s.\n\n%s%s%s%s\nNext open task: %s"
+          % (open_now, task, steps, warning, note, granted, remaining[0]))
 
 
 if __name__ == "__main__":

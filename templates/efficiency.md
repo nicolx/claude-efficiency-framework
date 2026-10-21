@@ -51,6 +51,17 @@ budget:
   # gets these defaults, and the multipliers are fixed when a run starts.
   tier_multiplier: { mechanical: 0.5, standard: 1, sensitive: 2, critical: 4 }
 
+  # The ceilings above are checkpoints, not stops. When a task reaches its spend
+  # ceiling, the run its continuation budget, a task its fifth continuation
+  # without closing — or half a window is spent with nothing closed and nothing
+  # changed on disk — this model reads the diff and the tool calls and decides
+  # whether the work is converging. Converging buys one more tranche of the same
+  # size, with no limit on how many; anything else stops the run with its reason.
+  # Two checkpoints in a row with no progress between them stop it without
+  # asking. A verdict costs a cent or less and is charged to the run.
+  # `off` restores the hard stops. Fixed when a run starts.
+  supervisor: sonnet
+
 # ── Criticality ──────────────────────────────────────────────────────────────
 # Declared path patterns decide the tier. Where they are silent, Claude
 # classifies, says so in one line, and proposes the pattern that would have
