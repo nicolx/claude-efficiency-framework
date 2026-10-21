@@ -15,7 +15,7 @@ Six things interrupt a session. Only one of them is genuinely yours:
 
 | Cause | Yours? | What removes it |
 |---|---|---|
-| A permission prompt on a tool | never | the permission fence |
+| A permission prompt on a tool | never | the auto-allow hook, and the permission fence |
 | "Shall I proceed?" halfway through an approved list | no | the autonomy charter |
 | The turn simply ending after a task | no | the autopilot `Stop` hook |
 | The model stuck on an ambiguity | **almost never** — it is an undeclared default | the declared defaults |
@@ -480,6 +480,11 @@ documentation:
 - **Permission rules cannot ship in a plugin** — a plugin's `settings.json` accepts only `agent` and
   `subagentStatusLine` — so `/efficiency:init` writes them into your project and reports every line
   it touched. It is the only invasive write the framework makes.
+- **Non-destructive Bash runs without a prompt** in a project with a policy: the `PreToolUse` hook
+  answers "allow" for `git commit`, `git push` without force, read-only commands and chains of
+  them. It errs only towards asking — force-push, `reset`, `clean`, `rm`, substitution and
+  redirection to a file still prompt — and your deny rules still win. `auto_allow: off` in the
+  policy switches it off; nothing in the project can widen it.
 - **The spend ceiling is a net against a wasted night, not a meter accurate to the cent.** It is read
   inside the turn as well as at its end, but not before every single action: the reading is reused
   for a few seconds, and it trails the session by one assistant message, because the message that

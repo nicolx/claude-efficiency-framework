@@ -20,6 +20,7 @@ every session but two. §§ 2, 3, 7, 15, 16, 17 unchanged; § 9 two `Bash` cells
 § 19 added, the first run of `efficiency:fanout`. Later the same day §§ 1, 4 and 5 were re-run, as
 the first version-keyed staleness check asked: unchanged, except a new `effort` key in the `Stop`
 payload. § 20 added: where fanning out starts to save wall time.
+Added: **2026-10-21** · Claude Code **2.1.305** — § 21, a hook granting a permission.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -1242,6 +1243,37 @@ twice, so every crossover here is a range, not a number.
 
 Verified: 2026-10-19 · Claude Code 2.1.303 · `scripts/probes/parallel-crossover.sh`
 
+## 21. A hook can grant a permission, and a deny rule still beats it
+
+Measured **2026-10-21** on **2.1.305** with `scripts/probes/hook-allow.sh`: one headless session
+under `--permission-mode default`, where any Bash call no rule allows is refused because nobody is
+there to ask, told to run three `touch` commands in a fresh, never-trusted `mktemp` directory. A
+`PreToolUse` hook answered `permissionDecision: "allow"` for two of them; a `permissions.deny` rule
+in `--settings` named one of those two.
+
+| Command | Hook | Rule | Ran? |
+|---|---|---|---|
+| `touch allowed` | allow | — | **yes** |
+| `touch control` | silent | — | no — the baseline: the mode refuses |
+| `touch denied` | allow | deny | **no** |
+
+Three conclusions, and the design of the auto-allow rests on each:
+
+- **The allow is honoured.** A hook can lift a prompt the permission mode would raise. The session
+  reported the control as "needed approval", the allowed one as simply run.
+- **A deny rule wins over it.** So a project's own fence keeps its meaning without the classifier
+  reading it, and the hook cannot be the thing that bypasses a deliberate deny.
+- **It works where a static allowlist does not.** § 7: `permissions.allow` in an untrusted
+  workspace's project settings is ignored, while hooks run. The hook is therefore the only carrier
+  of "don't ask about this" that reaches a project before anyone has accepted the trust dialog —
+  and the only one that needs no write into `.claude/` (§ 9).
+
+Not measured: whether a deny rule in an *untrusted* project's own `.claude/settings.json` still
+beats the hook — § 7 suggests that file's permission rules are ignored there, deny included. The
+classifier allows nothing a deny list would plausibly hold, so the gap is narrow, but it exists.
+
+Verified: 2026-10-21 · Claude Code 2.1.305 · `scripts/probes/hook-allow.sh`
+
 ## Re-running these measurements
 
 Every numbered section ends with a `Verified:` line — date, Claude Code version, and the probe that
@@ -1263,6 +1295,7 @@ bash scripts/probes/plugin-output-style.sh # which name selects a plugin's outpu
 bash scripts/probes/fanout.sh              # four items in one batch, and a refusal with no gate
 bash scripts/probes/parallel-crossover.sh  # wall time and cost, economy vs fast, at N = 2 4 8 12
 WORKLOAD=turns bash scripts/probes/parallel-crossover.sh 2 3 4 6 8  # the turn-bound case; mains power, caffeinate -i
+bash scripts/probes/hook-allow.sh          # a hook's allow is honoured, a deny rule still wins
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook

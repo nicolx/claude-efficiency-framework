@@ -105,6 +105,16 @@ parallel:
   # entirely: every wave is then one task, and fast mode cannot happen.
   max_agents: 10
 
+# ── Permission prompts ───────────────────────────────────────────────────────
+# The plugin's PreToolUse hook answers "allow" for Bash commands that cannot
+# destroy anything — git status/diff/log, add, commit, push without force,
+# fetch, switch, branch and tag creation, read-only shell commands, and chains
+# of them — so a session stops pausing to ask. Force-push, reset, clean, rm,
+# substitution and redirection to a file still ask. Your own deny rules in
+# .claude/settings.json still win. The list lives in the plugin, so editing this
+# file can only switch it off, never widen it.
+auto_allow: on
+
 # ── The only legitimate interruptions ────────────────────────────────────────
 # Anything not on this list is a confirmation, not a decision, and the charter
 # forbids asking for it.

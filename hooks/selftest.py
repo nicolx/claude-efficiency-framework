@@ -256,8 +256,12 @@ class Project:
             out = json.loads(done.stdout.strip().split("\n")[-1])
         return done.returncode, out
 
-    def invoke_pretool(self, tool="Bash"):
+    def invoke_pretool(self, tool="Bash", command="make build", mode="dontAsk"):
         """Invoke the mid-turn hook with a real PreToolUse payload.
+
+        The default command is one the auto-allow never classifies as safe, so a
+        ceiling case reads silence as "not refused" without the allow answering
+        for it.
 
         The payload shape is the measured one (§ 17), not an invented one: a
         selftest written against a payload the platform does not send proves
@@ -268,9 +272,9 @@ class Project:
             "cwd": self.dir,
             "hook_event_name": "PreToolUse",
             "tool_name": tool,
-            "tool_input": {"command": "echo hi"},
+            "tool_input": {"command": command},
             "tool_use_id": "selftest-1",
-            "permission_mode": "dontAsk",
+            "permission_mode": mode,
         }
         if self.transcript:
             payload["transcript_path"] = self.transcript
@@ -2608,6 +2612,121 @@ def _():
     after = json.dumps(p.private(), sort_keys=True)
     check("mid-turn: the guard writes no counter and no ceiling of its own",
           before == after, "private state changed under a hook that must only read it")
+    return p
+
+
+# ── auto-allow ───────────────────────────────────────────────────────────────
+#
+# The PreToolUse hook also answers "allow" for Bash commands that cannot destroy
+# anything, so a session stops pausing to ask about `git commit`. Its whole risk
+# is a wrong yes, so most of these cases are commands that must NOT be allowed —
+# each one a way a safe-looking line runs something else.
+
+def _safe_command():
+    sys.path.insert(0, os.path.join(HERE, "lib"))
+    import safe_command
+    return safe_command
+
+
+ALLOWED = [
+    "git status", "git diff --stat", "git log --oneline -5 HEAD~3",
+    "git add -A && git commit -m 'fix: one; two'",
+    "git commit -m \"$(cat <<'EOF'\nfeat: a `b` $c\n\nCo-Authored-By: X\nEOF\n)\"",
+    "git push", "git push -u origin feature", "git fetch origin", "git pull",
+    "git checkout -b feature", "git switch main", "git stash", "git tag v1",
+    "git -C sub status", "cd sub && git diff", "ls -la | grep foo",
+    "grep -rn foo src 2>/dev/null", "ls *.md", "find . -name '*.py'",
+]
+
+ASKED = [
+    # outward-facing and destructive git
+    "git push --force", "git push -f origin main", "git push --force-with-lease",
+    "git push origin +main", "git push origin :main", "git push origin main --delete",
+    "git reset --hard", "git clean -fd", "git branch -D x", "git checkout .",
+    "git checkout main", "git restore x", "git rebase main", "git stash drop",
+    # something else riding along
+    "git status; rm -rf x", "git status && rm x", "git status | sh",
+    "echo $(rm x)", "echo `rm x`", "git diff > p.txt", "git status &", "(git status)",
+    "FOO=1 git status", "git -c core.pager=sh status", "git log --output=x",
+    "find . -delete", "find . -exec rm {} ;", "find * -name x", "rg --pre=sh foo",
+    "git status # rm x", "npm test", "python3 x.py",
+    # a heredoc whose body closes a quote, or is not the first terminator
+    "echo '$(cat <<'EOF'\n'; rm -rf x; echo '\nEOF\n)'",
+    "git commit -m \"$(cat <<'EOF'\nx\nEOF\n; rm -rf y\nEOF\n)\"",
+    "git commit -m \"$(cat <<EOF\n$(rm x)\nEOF\n)\"",
+]
+
+
+@case("auto-allow: every safe command classifies as safe")
+def _():
+    sc = _safe_command()
+    missed = [c for c in ALLOWED if not sc.classify(c)]
+    check("auto-allow: every safe command classifies as safe", not missed,
+          "asked about: %r" % missed)
+
+
+@case("auto-allow: no destructive or smuggled command classifies as safe")
+def _():
+    sc = _safe_command()
+    leaked = [c for c in ASKED if sc.classify(c)]
+    check("auto-allow: no destructive or smuggled command classifies as safe", not leaked,
+          "would run unasked: %r" % leaked)
+
+
+@case("auto-allow: an adopted project gets git commit allowed")
+def _():
+    p = Project(run_file=False).write_policy()
+    code, out = p.invoke_pretool(command="git commit -m 'x'", mode="default")
+    check("auto-allow: an adopted project gets git commit allowed",
+          code == 0 and p.decision(out) == "allow", "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("auto-allow: an unsafe command gets silence, never a decision")
+def _():
+    # Silence is what leaves the platform's own prompt in charge. A deny here
+    # would block the developer's yes as well.
+    p = Project(run_file=False).write_policy()
+    code, out = p.invoke_pretool(command="git push --force", mode="default")
+    check("auto-allow: an unsafe command gets silence, never a decision",
+          code == 0 and out == {}, "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("auto-allow: silent in a project that never adopted the framework")
+def _():
+    p = Project(run_file=False)
+    code, out = p.invoke_pretool(command="git status", mode="default")
+    check("auto-allow: silent in a project that never adopted the framework",
+          code == 0 and out == {}, "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("auto-allow: silent in plan mode")
+def _():
+    p = Project(run_file=False).write_policy()
+    code, out = p.invoke_pretool(command="git commit -m x", mode="plan")
+    check("auto-allow: silent in plan mode", code == 0 and out == {},
+          "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("auto-allow: `auto_allow: off` in the policy switches it off")
+def _():
+    p = Project(run_file=False).write_policy("---\ngate: \"make check\"\nauto_allow: off\n---\n")
+    code, out = p.invoke_pretool(command="git status", mode="default")
+    check("auto-allow: `auto_allow: off` in the policy switches it off",
+          code == 0 and out == {}, "code=%s out=%s" % (code, out))
+    return p
+
+
+@case("auto-allow: the spend ceiling still refuses a safe command")
+def _():
+    p = Project(tasks="- [ ] T1 open").write_policy().seed_private(spend_max=1000)
+    p.write_transcript(OVER_CEILING)
+    code, out = p.invoke_pretool(command="git status", mode="default")
+    check("auto-allow: the spend ceiling still refuses a safe command",
+          code == 0 and p.decision(out) == "deny", "code=%s out=%s" % (code, out))
     return p
 
 

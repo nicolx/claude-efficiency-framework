@@ -1,5 +1,5 @@
 {
-  "description": "efficiency — refuse to end a turn while an approved run has work left, hold the spend ceiling inside the turn as well as at its end, and carry the autonomy charter into projects that adopted the framework",
+  "description": "efficiency — refuse to end a turn while an approved run has work left, hold the spend ceiling inside the turn as well as at its end, let non-destructive Bash run without a permission prompt, and carry the autonomy charter into projects that adopted the framework",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,7 +8,7 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/autopilot-pretool.py\"",
             "timeout": 20,
-            "statusMessage": "Checking the spend ceiling..."
+            "statusMessage": "Checking the spend ceiling and the command..."
           }
         ]
       }

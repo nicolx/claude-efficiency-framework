@@ -9,10 +9,10 @@
       "source": {
         "source": "github",
         "repo": "nicolx/claude-efficiency-framework",
-        "ref": "v0.21.1"
+        "ref": "v0.22.0"
       },
       "description": "Route each task to the right model, and stop confirming what was already agreed.",
-      "version": "0.21.1"
+      "version": "0.22.0"
     }
   ]
 }

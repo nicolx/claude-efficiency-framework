@@ -15,6 +15,27 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.22.0] — 2026-10-21
+
+### Added — non-destructive Bash no longer asks for permission
+
+A session in an adopted project paused for `git commit` exactly as it paused for `git push --force`,
+because the only thing lifting prompts was a static allowlist of six read-only git commands, which
+is ignored in an untrusted workspace and cannot be installed at all under `acceptEdits`.
+
+The `PreToolUse` hook now answers `permissionDecision: "allow"` for Bash commands that cannot
+destroy anything: git status/diff/log/show, `add`, `commit`, `push` without force, `fetch`, `pull`,
+`switch`, branch and tag creation, read-only shell commands, and `&&`/`|` chains of those. The
+classifier is `hooks/lib/safe_command.py` and errs only towards asking: force-push, a `+`/`:`
+refspec, `reset`, `clean`, `rm`, `checkout <path>`, command substitution, redirection to a file and
+env-var prefixes stay prompted. The one substitution it accepts is the quoted heredoc commit
+messages are written with. The spend ceiling still refuses first, a project's deny rules still win,
+plan mode is left alone, and `auto_allow: off` in the policy switches it off. The list lives in the
+plugin, so nothing the model can edit widens it.
+
+Measured before it was built: § 21 of `docs/verified-platform-behaviour.md`,
+`scripts/probes/hook-allow.sh`.
+
 ## [0.21.1] — 2026-10-19
 
 ### Changed — every report says where the work landed

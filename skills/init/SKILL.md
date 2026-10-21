@@ -139,8 +139,13 @@ its place only if it is **actionable without context**.
 - <one per line, read off what this repo already does>
 ````
 
-**`.claude/settings.json`** — merge in the permission rules. This is the only
-invasive write the framework makes, so treat it that way:
+**`.claude/settings.json`** — merge in the permission rules. Most prompts are
+already gone without them: the plugin's `PreToolUse` hook allows non-destructive
+Bash itself (`git commit`, `git push` without force, read-only commands) in any
+project with a policy, unless the policy says `auto_allow: off`. What the fence
+still adds is the project's own rules, and above all its **deny** list, which
+beats the hook. This is the only invasive write the framework makes, so treat it
+that way:
 
 - read the existing file first; never clobber it
 - add only; never remove or rewrite an existing rule

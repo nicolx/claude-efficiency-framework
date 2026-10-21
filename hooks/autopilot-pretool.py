@@ -60,6 +60,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 RUN_FILE = os.path.join(".efficiency", "run.md")
 STATE_FILE = os.path.join(".efficiency", "autopilot.json")
+POLICY_FILE = os.path.join(".efficiency", "policy.md")
 
 # This hook's own scratch file. Separate from autopilot.json on purpose — see
 # the module docstring. Nothing but this hook reads or writes it, and losing it
@@ -114,6 +115,32 @@ def refuse(reason):
     sys.exit(0)
 
 
+def allow(reason):
+    # Measured in scripts/probes/hook-allow.sh: honoured under a permission mode
+    # that would have refused, and still overruled by a deny rule.
+    sys.stdout.write(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "efficiency: " + reason}}) + "\n")
+    sys.exit(0)
+
+
+def policy_value(path, key):
+    """One frontmatter value of the policy, or "" — four lines, no YAML parser."""
+    try:
+        with open(path, errors="replace") as fh:
+            if fh.readline().strip() != "---":
+                return ""
+            for line in fh:
+                if line.strip() == "---":
+                    return ""
+                if line.split(":", 1)[0].strip() == key:
+                    return line.split(":", 1)[1].split("#", 1)[0].strip()
+    except OSError:
+        return ""
+    return ""
+
+
 def read_cache(path, window, size):
     """The last measurement, if it still describes this window and this file.
 
@@ -162,16 +189,8 @@ def write_cache(path, window, size, spent):
         pass
 
 
-def main():
-    try:
-        payload = json.load(sys.stdin)
-    except ValueError:
-        permit()
-
-    project = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ""
-    if not project or not os.path.isdir(project):
-        permit()
-    project = os.path.realpath(project)
+def ceiling_refusal(payload, project):
+    """Why this call must be refused for spend, or None when the ceiling permits it."""
     run_path = os.path.join(project, RUN_FILE)
 
     # No run, no ceiling, nothing to do. This is the overwhelmingly common case —
@@ -179,27 +198,27 @@ def main():
     # installed lands here — so it must cost one stat() and nothing else. In
     # particular the Stop hook is not imported until after this test.
     if not os.path.exists(run_path):
-        permit()
+        return None
 
     if os.path.dirname(os.path.realpath(run_path)) != os.path.join(project, ".efficiency"):
-        permit()   # a run file resolving outside the project is the Stop hook's to report
+        return None   # a run file resolving outside the project is the Stop hook's to report
 
     stop = _load_stop_hook()
 
     try:
         run = stop.Run(run_path)
     except (OSError, ValueError):
-        permit()
+        return None
 
     if run.get("status").upper() != "ACTIVE":
-        permit()
+        return None
 
     priv = stop.Private(os.path.join(project, STATE_FILE))
     if priv.get("blocked"):
         # Already stopped. The developer may well be driving by hand now, and
         # refusing their tool calls would be this hook enforcing a verdict that
         # has already been delivered.
-        permit()
+        return None
 
     # Whose ceiling to believe. Once the Stop hook has seen this run it owns the
     # number, and the run file's copy is ignored however it has been edited —
@@ -220,36 +239,83 @@ def main():
         window = priv.get("task_started_at")
 
     if spend_max <= 0 or not window:
-        permit()   # an explicit 0 is a decision, announced each turn by the Stop hook
+        return None   # an explicit 0 is a decision, announced each turn by the Stop hook
 
     transcript = payload.get("transcript_path")
     if not transcript or not os.path.isfile(transcript):
-        permit()   # blind: fail OPEN here, and let the Stop hook fail closed
+        return None   # blind: fail OPEN here, and let the Stop hook fail closed
 
     cache_path = os.path.join(project, CACHE_FILE)
     try:
         size = os.path.getsize(transcript)
     except OSError:
-        permit()
+        return None
 
     spent = read_cache(cache_path, window, size)
     if spent is None:
         spent = stop.measure_spend(transcript, window)
         if spent is None:
-            permit()   # blind again, and again the Stop hook is the one that stops
+            return None   # blind again, and again the Stop hook is the one that stops
         write_cache(cache_path, window, size, spent)
 
     if spent < spend_max:
-        permit()
+        return None
 
     task = run.get("current_task") or "the current task"
-    refuse(
+    return (
         "The spend ceiling for %s is reached: %s of %s, measured from this session's "
         "transcript. Stop calling tools now. Say what you completed and what is left, "
         "and end your turn — the autopilot will stop the run at the turn boundary and "
         "hand it to the developer. Raising the ceiling is not yours to do: it is set in "
         "the approved plan, and re-planning is how it changes."
         % (task, stop.usd(spent), stop.usd(spend_max)))
+
+
+def auto_allow_reason(payload, project):
+    """Why this call may skip the permission prompt, or None to let the platform ask.
+
+    Only in a project that adopted the framework, only for Bash, never in plan
+    mode (where the point is that nothing changes), and never where the policy
+    says `auto_allow: off`. The classifier is in the plugin and the policy can
+    only switch it off: a list the model could extend would be a leash it held.
+    A project's own deny rules still win — the platform applies them after this
+    allow (scripts/probes/hook-allow.sh) — so nothing here re-reads them.
+    """
+    if payload.get("tool_name") != "Bash":
+        return None
+    if payload.get("permission_mode") in ("plan", "bypassPermissions"):
+        return None
+    policy = os.path.join(project, POLICY_FILE)
+    if not os.path.isfile(policy):
+        return None
+    if policy_value(policy, "auto_allow").strip("\"'").lower() in ("off", "false", "no"):
+        return None
+    command = (payload.get("tool_input") or {}).get("command")
+    sys.path.insert(0, os.path.join(HERE, "lib"))
+    import safe_command
+    return safe_command.classify(command)
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+    except ValueError:
+        permit()
+
+    project = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ""
+    if not project or not os.path.isdir(project):
+        permit()
+    project = os.path.realpath(project)
+
+    # The ceiling first: a command safe enough to run unasked is still spend.
+    reason = ceiling_refusal(payload, project)
+    if reason:
+        refuse(reason)
+
+    reason = auto_allow_reason(payload, project)
+    if reason:
+        allow(reason)
+    permit()
 
 
 if __name__ == "__main__":
