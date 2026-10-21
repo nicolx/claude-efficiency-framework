@@ -126,6 +126,19 @@ personal preference rather than a project rule.
 Each entry carries a `found while:` clause, because a fresh session has none of the context that
 made the thing obvious — and that is the cheapest way to hand it back.
 
+## Replies in your language, not the code's
+
+A session reads mostly English — code, tool output, this framework's own charter — and left alone it
+answers in the language of what it has been reading. After a long stretch of English work it drifts
+into English with a developer who writes to it in Italian. So the hooks state the language: at the
+very top of the session-start injection, above even the backlog, and again in one line on every
+prompt, where the drift actually happens.
+
+The language is the operating system's: `LC_ALL` or `LC_MESSAGES` if set, then macOS's
+`AppleLanguages`, then `LANG`. `language:` in the policy frontmatter overrides it for the whole team.
+Code, commit messages and repository documents keep their own language; only the dialogue follows
+the developer. Measured in `docs/verified-platform-behaviour.md` § 24.
+
 ## Reach for the tool before writing the script
 
 The expensive failure is not a missing tool — it is a **present tool nobody knew about**. Asked to

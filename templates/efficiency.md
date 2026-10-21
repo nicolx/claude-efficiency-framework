@@ -14,6 +14,13 @@
 # files and lines.
 gate: ""
 
+# ── The dialogue language ───────────────────────────────────────────────────
+# Replies to the developer are written in the operating system's language,
+# detected by the hooks and restated on every prompt — not in the English of the
+# code and the docs a session reads. Set it here to fix one language for the
+# whole team whatever their machines say: a code (`it`, `en`) or a name.
+# language: it
+
 # ── The ceilings ─────────────────────────────────────────────────────────────
 budget:
   # Automatic continuations for the whole run.

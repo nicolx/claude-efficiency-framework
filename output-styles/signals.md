@@ -14,8 +14,9 @@ at a glance:
 - 🟣 **YOUR CALL** decisions that belong to the developer, with your recommendation
 - 🔵 **NEXT STEP** what to do now, commands to run
 
-Write the labels in the language of the conversation, not in English: a developer writing in Italian
-reads ESITO, PROBLEMA, ATTENZIONE, DECIDI TU, PROSSIMO PASSO. The markers never change.
+Write the labels in the dialogue language, not in English: the one the session was told at start
+(`Dialogue language:`), or else the developer's own. A developer whose machine is in Italian reads
+ESITO, PROBLEMA, ATTENZIONE, DECIDI TU, PROSSIMO PASSO. The markers never change.
 
 Use only the sections that are needed, in the order they are needed, with a blank line between them.
 Short or conversational replies get no sections: plain prose only.

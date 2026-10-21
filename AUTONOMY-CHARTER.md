@@ -78,8 +78,8 @@ two different questions and only one of them is the gate's.
 
 ### Lead with the verdict
 
-The **first line** of any report of finished work is exactly one of these, in the language of the
-conversation:
+The **first line** of any report of finished work is exactly one of these, in the dialogue language —
+the one named at the top of this injection, or else the developer's own:
 
 | Verdict | What it means |
 |---|---|

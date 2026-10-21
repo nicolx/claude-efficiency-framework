@@ -17,6 +17,10 @@ It is deliberately small and deliberately conditional:
   * nothing once a run is armed, because then the reminder is noise;
   * one short line, not a restatement of the charter.
 
+It also carries the dialogue language (hooks/lib/language.py), on every prompt
+and armed or not, for the same reason: a session drifts into English late, deep
+into English work, long after the session-start line was read.
+
 Never fatal: any failure prints nothing and exits 0. A missing reminder costs a
 turn; a broken hook costs the session.
 """
@@ -24,6 +28,8 @@ turn; a broken hook costs the session.
 import json
 import os
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 RUN = os.path.join(".efficiency", "run.md")
 POLICY = os.path.join(".efficiency", "policy.md")
@@ -66,12 +72,23 @@ def main():
         return 0
     if not os.path.exists(os.path.join(project, POLICY)):
         return 0
-    if run_is_armed(os.path.join(project, RUN)):
+
+    lines = []
+    try:
+        sys.path.insert(0, os.path.join(HERE, "lib"))
+        import language
+        lines.append(language.prompt_line(project))
+    except Exception:
+        pass   # a missing language line costs a reply's language, not the reminder
+    if not run_is_armed(os.path.join(project, RUN)):
+        lines.append(REMINDER)
+    lines = [l for l in lines if l]
+    if not lines:
         return 0
 
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
-        "additionalContext": REMINDER,
+        "additionalContext": "\n".join(lines),
     }}))
     return 0
 

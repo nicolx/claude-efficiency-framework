@@ -36,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "autopilot-stop.py")
 PRETOOL = os.path.join(HERE, "autopilot-pretool.py")
 SESSION_START = os.path.join(HERE, "session-start.py")
+PROMPT_REMINDER = os.path.join(HERE, "prompt-reminder.py")
 STATUSLINE = os.path.join(HERE, "statusline.py")
 PLUGIN = os.path.dirname(HERE)
 
@@ -178,7 +179,39 @@ class Project:
                               text=True, env=env, timeout=30)
         return done.returncode, done.stdout
 
-    def invoke_session_start(self, inventory=True, path=None):
+    def locale_env(self, env, locale=None, apple=None, path=None):
+        """The machine's language as a case declares it, never the host's.
+
+        The locale variables are removed and replaced by `locale`, and a fake
+        `defaults` first on PATH answers AppleLanguages with `apple`, or fails.
+        Without this every session-start case would read whatever language the
+        machine running the gate is in.
+        """
+        for var in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+            env.pop(var, None)
+        env.update(locale or {})
+        stub = os.path.join(self.bin, "defaults")
+        with open(stub, "w") as fh:
+            if apple:
+                fh.write('#!/bin/sh\nprintf \'(\\n    "%s"\\n)\\n\'\n' % apple)
+            else:
+                fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(stub, 0o755)
+        env["PATH"] = self.bin + os.pathsep + (path if path is not None
+                                               else os.environ.get("PATH", ""))
+        return env
+
+    def invoke_prompt(self, locale=None, apple=None):
+        """Invoke UserPromptSubmit; returns the injected context, or ""."""
+        payload = {"cwd": self.dir, "hook_event_name": "UserPromptSubmit", "prompt": "hi"}
+        env = self.locale_env(dict(os.environ, CLAUDE_PROJECT_DIR=self.dir), locale, apple)
+        done = subprocess.run([sys.executable, PROMPT_REMINDER], input=json.dumps(payload),
+                              capture_output=True, text=True, env=env, timeout=30)
+        if not done.stdout.strip():
+            return ""
+        return json.loads(done.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+    def invoke_session_start(self, inventory=True, path=None, locale=None, apple=None):
         """Invoke SessionStart. A missing inventory is seeded first unless asked not to.
 
         Without the seed every case would launch the real detection, which asks
@@ -189,9 +222,7 @@ class Project:
         if inventory and not os.path.exists(tools):
             self.write_tools()
         payload = {"cwd": self.dir, "hook_event_name": "SessionStart"}
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir)
-        if path is not None:
-            env["PATH"] = path
+        env = self.locale_env(dict(os.environ, CLAUDE_PROJECT_DIR=self.dir), locale, apple, path)
         done = subprocess.run([sys.executable, SESSION_START], input=json.dumps(payload),
                               capture_output=True, text=True, env=env, timeout=60)
         if not done.stdout.strip():
@@ -2485,6 +2516,81 @@ def _():
     check("the charter tells the model to arm on a plain keep-going instruction",
           "efficiency:autopilot" in text and "is an approval" in text,
           "the natural-language path is not in the charter")
+    return p
+
+
+# ── 7b. the dialogue language ───────────────────────────────────────────────
+# A session reads mostly English and drifts into answering in it. The hooks
+# state the OS language at session start, above everything, and on every
+# prompt. Each source is exercised with the host's own language shut out.
+
+@case("language: macOS's AppleLanguages names it when no locale variable is set")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start(apple="it-IT")
+    check("language: macOS's AppleLanguages names it when no locale variable is set",
+          sys.platform != "darwin" or text.startswith("# Dialogue language: Italian"),
+          "starts with: %.80s" % text)
+    return p
+
+
+@case("language: LANG names it, LC_ALL overrides it, the policy overrides both")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, by_lang = p.invoke_session_start(locale={"LANG": "fr_FR.UTF-8"})
+    _c, by_all = p.invoke_session_start(locale={"LANG": "fr_FR.UTF-8", "LC_ALL": "de_DE.UTF-8"},
+                                        apple="it-IT")
+    p.write_policy("---\nlanguage: es\n---\n")
+    _c, by_policy = p.invoke_session_start(locale={"LC_ALL": "de_DE.UTF-8"}, apple="it-IT")
+    p.write_policy("---\nlanguage: \"italiano\"  # as the team writes it\n---\n")
+    _c, by_name = p.invoke_session_start(locale={"LC_ALL": "de_DE.UTF-8"})
+    check("language: LANG names it, LC_ALL overrides it, the policy overrides both",
+          by_lang.startswith("# Dialogue language: French")
+          and by_all.startswith("# Dialogue language: German")
+          and by_policy.startswith("# Dialogue language: Spanish")
+          and by_name.startswith("# Dialogue language: italiano"),
+          "LANG=%.40s | LC_ALL=%.40s | policy=%.40s | name=%.40s"
+          % (by_lang, by_all, by_policy, by_name))
+    return p
+
+
+@case("language: nothing to go on means nothing said — C is not a language")
+def _():
+    p = Project(run_file=False).write_policy()
+    _c, text = p.invoke_session_start(locale={"LANG": "C.UTF-8", "LC_ALL": "POSIX"})
+    line = p.invoke_prompt(locale={"LANG": "C"})
+    check("language: nothing to go on means nothing said — C is not a language",
+          "Dialogue language" not in text and "Reply in" not in line,
+          "session=%.60s prompt=%.60s" % (text, line))
+    return p
+
+
+@case("language: the line opens the injection, above even the backlog")
+def _():
+    p = Project(run_file=False).write_policy().write_backlog(
+        "# Backlog\n\n## Open\n\n- [ ] 2026-10-10 - fix the thing - found while: elsewhere\n")
+    _c, text = p.invoke_session_start(locale={"LANG": "it_IT.UTF-8"})
+    check("language: the line opens the injection, above even the backlog",
+          text.startswith("# Dialogue language: Italian")
+          and text.index("Dialogue language") < text.index("open backlog item"),
+          "starts with: %.80s" % text)
+    return p
+
+
+@case("language: every prompt carries it, armed or not, and only where adopted")
+def _():
+    p = Project().write_policy()
+    armed = p.invoke_prompt(locale={"LANG": "it_IT.UTF-8"})
+    q = Project(run_file=False).write_policy()
+    idle = q.invoke_prompt(locale={"LANG": "it_IT.UTF-8"})
+    r = Project(run_file=False)
+    bare = r.invoke_prompt(locale={"LANG": "it_IT.UTF-8"})
+    check("language: every prompt carries it, armed or not, and only where adopted",
+          "Reply in Italian" in armed and "arm the autopilot" not in armed
+          and "Reply in Italian" in idle and "arm the autopilot" in idle and bare == "",
+          "armed=%r idle=%.80r bare=%r" % (armed, idle, bare))
+    q.close()
+    r.close()
     return p
 
 

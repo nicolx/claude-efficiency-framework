@@ -23,6 +23,7 @@ payload. § 20 added: where fanning out starts to save wall time.
 Added: **2026-10-21** · Claude Code **2.1.305** — § 21, a hook granting a permission.
 Added: **2026-10-21** · Claude Code **2.1.306** — § 22, a hook asking a second model for a verdict.
 Added: **2026-10-21** · Claude Code **2.1.306** — § 23, checkpoints end to end.
+Added: **2026-10-21** · Claude Code **2.1.306** — § 24, the dialogue language.
 
 The re-measurement is the point of the exercise, and it earned its keep on the first attempt: one
 finding had quietly stopped being true, and only running the probe again revealed it.
@@ -1361,6 +1362,46 @@ the case a supervisor is for.
 
 Verified: 2026-10-21 · Claude Code 2.1.306 · `scripts/probes/supervisor-checkpoint.sh`
 
+## 24. A hook can know the OS language without LANG, and one injected line holds the dialogue
+
+Measured **2026-10-21** on **2.1.306** with `scripts/probes/dialogue-language.sh`, macOS 23.3.0 with
+the system language set to Italian.
+
+**`env` — what reaches a hook.** One headless session per cell; a `SessionStart` and a
+`UserPromptSubmit` hook each recorded the locale variables and asked `defaults` for the OS language.
+
+| Launching environment | `LANG` in the hook | `LC_*` | `defaults read -g AppleLanguages` |
+|---|---|---|---|
+| inherited from a terminal | `it_IT.UTF-8` | unset | `("it-IT")` |
+| `LANG` and `LC_*` removed | **unset** | unset | `("it-IT")` |
+
+So a hook sees exactly the environment Claude Code was started with, and a session started without
+`LANG` — as an app launched from the Dock or Finder may be — gives it no locale variable at all.
+`AppleLanguages` answers either way, from inside the hook, in milliseconds. It is the OS language;
+`LANG` is a shell's.
+
+**`drift` — does telling the model hold?** An English task in an English prompt, then a second
+English turn via `--continue`, on Haiku; each reply classified by counting Italian and English
+stopwords in its prose, code excluded.
+
+| Cell | Turn 1 | Turn 2 |
+|---|---|---|
+| no language line | English | English |
+| line at `SessionStart` only | **Italian** | **Italian** |
+| line at `SessionStart` and on every prompt | **Italian** | **Italian** |
+
+One line at session start is enough for two turns: the files it wrote stayed English, the reports
+did not. What two turns cannot show is the drift that prompted this — a report in English after
+dozens of turns of English tool work, deep into a long context. The per-prompt line is there for
+that case, and costs about twenty tokens a turn; its necessity is inferred from the incident, not
+measured.
+
+One more fact, found while wiring it: the session-start injection is around 18 KB and the harness
+shows it as a **2 KB preview**. The language line therefore goes first, above even the backlog — a
+line below the cut may never be read.
+
+Verified: 2026-10-21 · Claude Code 2.1.306 · `scripts/probes/dialogue-language.sh`
+
 ## Re-running these measurements
 
 Every numbered section ends with a `Verified:` line — date, Claude Code version, and the probe that
@@ -1387,6 +1428,8 @@ bash scripts/probes/supervisor-call.sh nested  # a Stop hook's nested Haiku verd
 bash scripts/probes/supervisor-call.sh prompt  # the platform's prompt hook: alias refused, full id blocks
 bash scripts/probes/supervisor-checkpoint.sh converging  # a long task goes DONE through checkpoints
 bash scripts/probes/supervisor-checkpoint.sh impossible  # an impossible one is stopped at the first
+bash scripts/probes/dialogue-language.sh env    # which locale signals reach a hook, with and without LANG
+bash scripts/probes/dialogue-language.sh drift  # does an injected language line hold over English work
 ```
 
 The probes print verdicts rather than raw numbers to interpret. `stop-cap.sh` says loudly when the hook

@@ -15,6 +15,27 @@ A consuming project pins this plugin by `ref` or `sha`, so a change to anything 
 Work that is committed and not yet inside any tag. `scripts/release.sh` refuses to cut a release
 while this section has content, so it can never again describe work consumers already have.
 
+## [0.24.0] — 2026-10-21
+
+### Added — replies in the OS language, not in the code's
+
+A session reads mostly English and answers in the language of what it has been reading: after a
+long stretch of English tool work, this framework's own sessions drifted into English with a
+developer writing in Italian. `hooks/lib/language.py` detects the dialogue language — `language:`
+in the policy, then `LC_ALL`, `LC_MESSAGES`, macOS's `AppleLanguages`, `LANG` — and the hooks state
+it twice: as the first paragraph of the session-start injection, above even the backlog, because
+the harness shows that injection as a 2 KB preview; and as one line on every prompt, armed or not,
+because drift happens late. Code, commit messages and repository documents keep their own
+language. Nothing is said when nothing is detected, and only in projects that adopted the
+framework.
+
+The `Signals` output style and the charter's verdict line now follow the declared language rather
+than "the language of the conversation". New policy key `language:`, commented out in the template.
+Five selftest cases, four mutation-tested. Measured in § 24 of
+`docs/verified-platform-behaviour.md` with `scripts/probes/dialogue-language.sh`: a hook launched
+without `LANG` sees no locale variable but `AppleLanguages` still answers, and an injected line kept
+both turns of English work in Italian where the control answered in English.
+
 ## [0.23.0] — 2026-10-21
 
 ### Changed — the ceilings are checkpoints: a supervisor decides, not a count

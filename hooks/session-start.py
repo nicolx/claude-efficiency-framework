@@ -66,6 +66,12 @@ LEGACY = [
 ]
 
 
+def load_language():
+    sys.path.insert(0, os.path.join(HERE, "lib"))
+    import language
+    return language
+
+
 def frontmatter_value(path, key):
     """One frontmatter value, without pulling in a YAML parser for four lines."""
     try:
@@ -306,6 +312,12 @@ def main():
                 "Do not start on any of it unless they ask: these were set aside on purpose, and "
                 "picking one up uninvited is the scope creep the deferral existed to prevent.\n\n"
                 "---\n\n" % (count, shown, more)) + text
+
+    # The dialogue language goes above everything, the backlog included. The
+    # harness shows this injection as a 2 KB preview of ~18 KB, and a line below
+    # the cut is a line the model may never read; this one decides the language
+    # of every reply in the session.
+    text = load_language().session_line(project) + text
 
     # The backlog is also published continuously, under the prompt, by a status
     # line — because announcing it here once is demonstrably not enough: this
